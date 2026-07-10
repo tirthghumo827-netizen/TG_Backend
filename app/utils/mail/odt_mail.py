@@ -56,7 +56,7 @@ def send_booking_email(
             </span>
           </td>
         </tr>
-        """
+        """ 
 
     # --- Links ---
     approve_link = f"https://https://web-production-60ea6.up.railway.app/odt/approve?booking_id={booking_id}"
