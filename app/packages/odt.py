@@ -260,7 +260,10 @@ Thank you {booking.primary_traveller_name} Ji for registering for the One Day Tr
 
 Your registration is successful.  
 
-Please check your email for the confirmation and trek details.  
+Please check your email for the confirmation and trek details  . 
+
+Join the official WhatsApp group using the link below:
+https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0
 
 Make sure you have raised the request to join the official WhatsApp group as all updates, packing lists, and important info will be shared there before the trek .
 
