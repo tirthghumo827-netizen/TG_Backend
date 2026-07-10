@@ -252,7 +252,7 @@ def _status_page(
 </html>
 """
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
-
+ 
 
 def _build_odt_whatsapp_message(booking) -> str:
     return f"""
