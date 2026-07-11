@@ -139,6 +139,22 @@ async def odt_booking(
 
 
 
+ODT_WHATSAPP_GROUPS = {
+    "2026-07-12": "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0", #B9
+    "2026-07-19": "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0",  # B10
+    # add more trek dates here as needed
+}
+
+DEFAULT_ODT_WHATSAPP_GROUP = "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0"
+
+
+def _get_whatsapp_group_link(trek_date) -> str:
+    if hasattr(trek_date, "isoformat"):
+        trek_date = trek_date.isoformat()
+    else:
+        trek_date = str(trek_date).strip()[:10]
+    return ODT_WHATSAPP_GROUPS.get(trek_date, DEFAULT_ODT_WHATSAPP_GROUP)
+
 def _status_page(
     title: str,
     message: str,
@@ -255,6 +271,8 @@ def _status_page(
  
 
 def _build_odt_whatsapp_message(booking) -> str:
+    print(f"DEBUG trek_date value: {repr(booking.trek_date)}")
+    group_link = _get_whatsapp_group_link(booking.trek_date)
     return f"""
 Thank you {booking.primary_traveller_name} Ji for registering for the One Day Trek ! 
 
@@ -263,7 +281,7 @@ Your registration is successful.
 Please check your email for the confirmation and trek details  . 
 
 Join the official WhatsApp group using the link below:
-https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0
+{group_link}
 
 Make sure you have raised the request to join the official WhatsApp group as all updates, packing lists, and important info will be shared there before the trek .
 
