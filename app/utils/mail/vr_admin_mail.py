@@ -6,9 +6,9 @@ resend.api_key = settings.resend_api_key
 
 def send_admin_vr_darshan_email(booking):
 
-    approve_url = f"https://web-production-60ea6.up.railway.app/divya-drishti/approve-booking/{booking.id}"
+    approve_url = f"https://web-production-b9395.up.railway.app/divya-drishti/approve-booking/{booking.id}"
 
-    decline_url = f"https://web-production-60ea6.up.railway.app/divya-drishti/reject-booking/{booking.id}"
+    decline_url = f"https://web-production-b9395.up.railway.app/divya-drishti/reject-booking/{booking.id}"
     # decline_other_url = f"https://web-production-60ea6.up.railway.app/admin/vr-darshan/action?booking_id={booking.id}&action=decline_other"
 
     payment_screenshot_html = (
