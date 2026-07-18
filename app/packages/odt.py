@@ -140,12 +140,12 @@ async def odt_booking(
 
 
 ODT_WHATSAPP_GROUPS = {
-    "2026-07-12": "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0", #B9
-    "2026-07-19": "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0",  # B10
+    # "2026-07-12": "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0", #B9
+    "2026-07-26": "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0",  # B10
     # add more trek dates here as needed
 }
 
-DEFAULT_ODT_WHATSAPP_GROUP = "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0"
+DEFAULT_ODT_WHATSAPP_GROUP = "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0"
 
 
 def _get_whatsapp_group_link(trek_date) -> str:
