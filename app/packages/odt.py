@@ -238,7 +238,7 @@ async def odt_booking(
     }
 
 # Chota Pachmarhi Route 
-@router.post("/odt/chota_pachmarhi", status_code=status.HTTP_201_CREATED)
+@router.post("/odt/halali", status_code=status.HTTP_201_CREATED)
 async def odt_booking(
     background_tasks: BackgroundTasks,
     travellers: str = Form(...),   # JSON string array
@@ -441,9 +441,7 @@ def approve_booking(
         booking_id,
         background_tasks,
         db,
-        booking_model=models.ODT1,
-        pricing_function=get_price_per_person_mrignnath,
-        base_price=1351,
+        config=BUDHNI_CONFIG
     )
 @router.get("/odt/halali/approve")
 def approve_chota_booking(
@@ -455,9 +453,7 @@ def approve_chota_booking(
         booking_id,
         background_tasks,
         db,
-        booking_model=models.ChotaPachmarhi,
-        pricing_function=get_price_per_person_chota_pachmarhi,
-        base_price=1199,
+        config=HALALI_CONFIG
     )
 
 @router.get("/odt/budhni/decline")

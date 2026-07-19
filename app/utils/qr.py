@@ -423,7 +423,7 @@ async def generate_odt_qr(
       "payment_qr_url": qr_url,
       "amount": amount
   } 
-@router.get("/odt/chota-pachmarhi/qr")
+@router.get("/odt/halali/qr")
 async def generate_odt_qr(
   number_of_people: int,
   meal_preference:str
