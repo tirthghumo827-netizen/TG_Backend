@@ -312,7 +312,7 @@ async def send_email_with_invoice(email ,data, invoice_path):
     email_body = f"""
    Hey🌿
 
-Great news — your booking for the 1Day Mrignnath Trek with TirthGhumo 
+Great news — your booking for the 1Day Adventure Trek with TirthGhumo 
 is confirmed for {data.trek_date}!
 
 Your payment has been approved successfully . 
