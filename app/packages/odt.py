@@ -137,6 +137,119 @@ async def odt_booking(
         "total_price": total_price
     }
 
+# Chota Pachmarhi Route 
+@router.post("/odt/chota_pachmarhi", status_code=status.HTTP_201_CREATED)
+async def odt_booking(
+    background_tasks: BackgroundTasks,
+    travellers: str = Form(...),   # JSON string array
+    meal_preference: str = Form(...),
+    trek_date: str = Form(...) ,
+    agree: bool = Form(...),
+    payment_screenshot: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    # Parse travellers JSON
+    
+    travellers_list = json.loads(travellers)
+    
+    try:
+        print("RAW travellers:", travellers)
+        print(type(travellers))
+        travellers_list = json.loads(travellers)
+
+        if not isinstance(travellers_list, list):
+            raise ValueError("Travellers must be a list")
+
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid travellers data"
+        )
+
+    total_people = len(travellers_list)
+
+    if total_people == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one traveller required"
+        )
+
+    price_per_person = get_price_per_person(total_people , meal_preference)
+    total_price = price_per_person * total_people
+
+    if not total_price:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid group size"
+        )
+
+    # Save screenshot
+    file_location = None
+
+    if payment_screenshot:
+        unique_id = uuid.uuid4().hex
+        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
+        file_location = os.path.join(UPLOAD_DIR, file_name)
+
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(payment_screenshot.file, buffer)
+    primary_email = travellers_list[0]["email_address"]
+    primary_traveller_name = travellers_list[0]["full_name"]
+    primary_traveller_contact = travellers_list[0]["contact_number"]
+    # Create booking
+    booking = models.ChotaPachmarhi(
+        primary_email=primary_email,
+        primary_traveller_name=primary_traveller_name,
+        primary_traveller_contact=primary_traveller_contact,
+        total_people=total_people,
+        total_price=total_price,
+        meal_preference=meal_preference,
+        trek_date=trek_date, 
+        agree=agree,
+        payment_screenshot=file_location,
+        status="pending"
+    )
+
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+
+    # Add travellers
+    for traveller in travellers_list:
+        traveller_data = models.ChotaPachmarhiTraveller(
+            booking_id=booking.id,
+            full_name=traveller["full_name"],
+            email_address=traveller["email_address"],
+            age=traveller["age"],
+            gender=traveller["gender"],
+            contact_number=traveller["contact_number"],
+            whatsapp_number=traveller["whatsapp_number"],
+            college_name=traveller["college_name"],
+            pick_up_loc=traveller["pick_up_loc"],
+            drop_loc=traveller["drop_loc"],
+            trip_exp_level=traveller.get("trip_exp_level"),
+            medical_details=traveller.get("medical_details")
+        )
+
+        db.add(traveller_data)
+
+
+    db.commit()
+
+    background_tasks.add_task(
+    send_booking_email,
+    booking.id,
+    db,
+    file_location
+    )
+
+    return {
+        "message": "Booking successful",
+        "booking_id": booking.id,
+        "total_people": total_people,
+        "total_price": total_price
+    }
+
 
 
 ODT_WHATSAPP_GROUPS = {

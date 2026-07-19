@@ -87,6 +87,54 @@ class ODTTraveller(Base):
 
     trip_exp_level = Column(String(40))
     medical_details = Column(String(100))
+
+
+class ChotaPachmarhi(Base):
+    __tablename__ = "chota_pachmarhi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    primary_email = Column(String(100), nullable=False)
+    primary_traveller_name = Column(String(100), nullable=False)
+    primary_traveller_contact = Column(String(12), nullable=False)
+    total_people = Column(Integer, nullable=False)
+    total_price = Column(Integer, nullable=False)
+    meal_preference = Column(String(30), nullable=False)
+    trek_date = Column(Date, nullable=False)
+    status = Column(String(20), default="pending")
+    payment_screenshot = Column(String(255), nullable=False)
+    agree = Column(Boolean, default=False)
+    submitted_at = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()")
+    )
+class ChotaPachmarhiTraveller(Base):
+    __tablename__ = "chota_pachmarhi_travellers"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    booking_id = Column(
+        Integer,
+        ForeignKey("chota_pachmarhi.id"),
+        nullable=False
+    )
+
+    full_name = Column(String(100), nullable=False)
+    email_address = Column(String(100), nullable=False)
+
+    age = Column(Integer, nullable=False)
+    gender = Column(String(20), nullable=False)
+
+    pick_up_loc = Column(String(50), nullable=False)
+    drop_loc = Column(String(50), nullable=False)
+
+    contact_number = Column(String(12), nullable=False)
+    whatsapp_number = Column(String(12), nullable=False)
+
+    college_name = Column(String(200), nullable=False)
+
+    trip_exp_level = Column(String(40))
+    medical_details = Column(String(100))
 class Pachmarhi(Base):
     __tablename__="pachmarhi"
 

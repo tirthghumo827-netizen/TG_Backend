@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, status, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import date
-from fastapi.responses import HTMLResponse , RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import quote
 from app.database import get_db
 from ..schema import (
@@ -27,6 +27,82 @@ router = APIRouter(
     prefix="/divya-drishti",
     tags=["Divya Drishti"]
 )
+
+# ---------------------------------------------------------------------------
+# Shared brand chrome for all HTML admin pages (matches the Resend email theme)
+# ---------------------------------------------------------------------------
+def _page_shell(title: str, eyebrow: str, badge: str, badge_bg: str, badge_color: str, body_html: str) -> str:
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>{title} · TirthGhumo</title>
+    </head>
+    <body style="margin:0;padding:0;background:#F5F3FF;font-family:'Segoe UI',Arial,sans-serif;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F3FF;padding:40px 16px;">
+            <tr>
+                <td align="center">
+                    <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+
+                        <!-- Header -->
+                        <tr>
+                            <td style="background:linear-gradient(135deg,#4C1D95 0%,#7C3AED 100%);border-radius:14px 14px 0 0;padding:32px 36px;">
+                                <table width="100%" cellpadding="0" cellspacing="0">
+                                    <tr>
+                                        <td>
+                                            <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:2px;color:#C4B5FD;text-transform:uppercase;">
+                                                Tirth Ghumo · VR Darshan
+                                            </p>
+                                            <h1 style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;line-height:1.3;">
+                                                {eyebrow}
+                                            </h1>
+                                        </td>
+                                        <td align="right" valign="top">
+                                            <span style="display:inline-block;background:{badge_bg};color:{badge_color};font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:5px 12px;border-radius:20px;white-space:nowrap;">
+                                                {badge}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <!-- Body -->
+                        <tr>
+                            <td style="background:#FFFFFF;padding:32px 36px;border-left:1px solid #EDE9FE;border-right:1px solid #EDE9FE;">
+                                {body_html}
+                            </td>
+                        </tr>
+
+                        <!-- Footer -->
+                        <tr>
+                            <td style="background:#F5F3FF;border:1px solid #EDE9FE;border-top:none;border-radius:0 0 14px 14px;padding:20px 36px;text-align:center;">
+                                <p style="margin:0;font-size:11px;color:#9CA3AF;">TirthGhumo · Divya Drishti VR Darshan System</p>
+                                <p style="margin:4px 0 0 0;font-size:11px;color:#9CA3AF;">Support: 6260499299 · enquiry.tirthghumo@gmail.com</p>
+                            </td>
+                        </tr>
+
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+
+
+def _info_row(label: str, value, zebra: bool = False) -> str:
+    bg = "#F5F3FF" if zebra else "#FFFFFF"
+    return f"""
+    <tr style="background:{bg};">
+        <td style="padding:10px 16px;font-size:12px;font-weight:600;color:#6B7280;width:40%;border-bottom:1px solid #EDE9FE;">{label}</td>
+        <td style="padding:10px 16px;font-size:13px;font-weight:600;color:#1F2937;border-bottom:1px solid #EDE9FE;">{value}</td>
+    </tr>
+    """
+
+
 @router.get("/booking/{booking_id}")
 def get_booking_details(
     booking_id: int,
@@ -36,6 +112,7 @@ def get_booking_details(
         db,
         booking_id
     )
+
 
 @router.post(
     "/book",
@@ -51,7 +128,7 @@ async def book_session(
     persons: int = Form(...),
     slot_time: str = Form(...),
     slot_date: date = Form(...),
-    payment_status:str = Form(...),
+    payment_status: str = Form(...),
     payment_screenshot: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -73,70 +150,157 @@ async def book_session(
         payment_screenshot,
         background_tasks
     )
+
+
 @router.post("/executive/login")
 def executive_login(
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    executive =db.query(Executive).filter(
+    executive = db.query(Executive).filter(
         Executive.username == username,
         Executive.password == password
     ).first()
 
     if not executive:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    return{
-        "success" : True , 
-        "executive_id" : executive.id ,
-        "full_name" : executive.full_name
+    return {
+        "success": True,
+        "executive_id": executive.id,
+        "full_name": executive.full_name
     }
+
+
 @router.put("/update/{booking_id}", response_model=DarshanBookingResponse)
 async def update_booking(
-    
     booking_id: int,
     booking_in: CompleteBookingDetails,
-    db:Session = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     return service.complete_booking_details(
         db,
         booking_id,
         booking_in
     )
+
+
+# ---------------------------------------------------------------------------
+# FIX #1: this used to call an undefined `get_booking(...)` (NameError on
+# every click). It now correctly goes through the service layer.
+# ---------------------------------------------------------------------------
 @router.get("/qr/{booking_id}")
 def get_qr(booking_id: int, db: Session = Depends(get_db)):
-    booking = get_booking(db, booking_id)
+    booking = service.get_booking(db, booking_id)
     return RedirectResponse(url=booking.qr_code)
+
+
 @router.get("/approve-booking/{booking_id}")
 def approve_booking_email(
     booking_id: int,
     db: Session = Depends(get_db)
 ):
+    booking = service.get_booking(db, booking_id)
+    executives = db.query(Executive).all()
+
+    if executives:
+        exec_buttons = ""
+        for executive in executives:
+            exec_buttons += f"""
+            <form method="POST" action="/divya-drishti/approve-booking/{booking.id}" style="margin-bottom:10px;">
+                <input type="hidden" name="executive_id" value="{executive.id}" />
+                <button type="submit" style="display:block;width:100%;background:#FFFFFF;color:#4C1D95;
+                    border:2px solid #DDD6FE;text-decoration:none;font-size:14px;font-weight:700;
+                    text-align:left;padding:14px 20px;border-radius:8px;cursor:pointer;
+                    transition:background 0.15s ease;">
+                    👤 &nbsp; Assign to {executive.full_name}
+                </button>
+            </form>
+            """
+    else:
+        exec_buttons = """
+        <p style="margin:0;font-size:13px;color:#9CA3AF;font-style:italic;">
+            No Saarthi executives are currently available to assign.
+        </p>
+        """
+
+    body = f"""
+    <p style="margin:0 0 12px 0;font-size:10px;font-weight:700;letter-spacing:2px;color:#7C3AED;text-transform:uppercase;">
+        Booking Summary
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EDE9FE;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+        {_info_row("Booking ID", f"#{booking.id}")}
+        {_info_row("Customer", booking.full_name, zebra=True)}
+        {_info_row("Date", booking.slot_date)}
+        {_info_row("Time Slot", booking.slot_time, zebra=True)}
+        {_info_row("Persons", booking.persons)}
+    </table>
+
+    <p style="margin:0 0 14px 0;font-size:10px;font-weight:700;letter-spacing:2px;color:#7C3AED;text-transform:uppercase;">
+        Assign a Saarthi Executive
+    </p>
+    {exec_buttons}
+
+    <hr style="border:none;border-top:1px solid #EDE9FE;margin:24px 0;" />
+
+    <a href="/divya-drishti/reject-booking/{booking.id}"
+       style="display:block;text-align:center;background:#FFFFFF;color:#DC2626;text-decoration:none;
+              font-size:13px;font-weight:700;padding:12px 20px;border-radius:8px;border:2px solid #FCA5A5;">
+        ❌ &nbsp; Reject This Booking
+    </a>
+    """
+
+    return HTMLResponse(_page_shell(
+        title="Approve Booking",
+        eyebrow="Assign a Saarthi",
+        badge="Pending",
+        badge_bg="#FEF3C7",
+        badge_color="#92400E",
+        body_html=body
+    ))
+
+
+# ---------------------------------------------------------------------------
+# FIX #2: this used to build `short_qr_url` and `whatsapp_url` and then
+# discard them, returning a bare 3-line text response with no way to
+# actually view the QR or message the customer. It now renders a proper
+# confirmation page with both actions.
+# ---------------------------------------------------------------------------
+@router.post("/approve-booking/{booking_id}")
+def approve_booking_submit(
+    background_tasks: BackgroundTasks,
+    booking_id: int,
+    executive_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+
     booking = service.approve_booking(
         db,
         booking_id,
-        BackgroundTasks()
+        executive_id,
+        background_tasks
     )
+
+    executive = db.query(Executive).filter(Executive.id == executive_id).first()
+    executive_name = executive.full_name if executive else "Saarthi"
+
     short_qr_url = service.shorten_url(booking.qr_code)
-    print(short_qr_url)
-    whatsapp_message = f"""
-🙏 *Divya Drishti VR Darshan Booking Confirmed*
+
+    whatsapp_message = f"""🙏 *Divya Drishti VR Darshan Booking Confirmed*
 
 Namaste {booking.full_name},
 
 We are delighted to inform you that your booking has been approved.
 
 📋 *Booking Details*
-
 • Booking ID: #{booking.id}
 • Date: {booking.slot_date}
 • Time Slot: {booking.slot_time}
 • Persons: {booking.persons}
 
-🎫 Your QR Code:{short_qr_url}
+🎫 Your QR Code: {short_qr_url}
 
-📝 Important Instructions
-
+📝 *Important Instructions*
 • Please be available 15 minutes before your scheduled slot.
 • Keep your phone reachable.
 • Our Saarthi will contact you before arrival.
@@ -149,57 +313,68 @@ We hope this spiritual experience brings peace, positivity and divine blessings 
 
 Warm Regards,
 *Team TirthGhumo*
-Divya Drishti VR Darshan
-"""
+Divya Drishti VR Darshan"""
 
     whatsapp_url = (
         f"https://wa.me/91{booking.whatsapp_number}"
         f"?text={quote(whatsapp_message)}"
     )
 
-    return HTMLResponse(f"""
-    <html>
-    <body style="
-        font-family:Arial;
-        text-align:center;
-        padding-top:50px;
-        background:#f8fafc;
-    ">
+    qr_view_url = f"/divya-drishti/qr/{booking.id}"
 
-        <h2 style="color:green;">
-            ✅ Booking Approved Successfully
-        </h2>
+    body = f"""
+    <p style="margin:0 0 20px 0;font-size:14px;color:#374151;line-height:1.6;">
+        Booking <strong>#{booking.id}</strong> has been assigned to <strong>{executive_name}</strong>.
+        The QR code is ready and a confirmation message is prepared for the customer.
+    </p>
 
-        <br>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EDE9FE;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+        {_info_row("Customer", booking.full_name)}
+        {_info_row("Assigned Saarthi", executive_name, zebra=True)}
+        {_info_row("Date", booking.slot_date)}
+        {_info_row("Time Slot", booking.slot_time, zebra=True)}
+    </table>
 
-        <a href="{booking.qr_code}"
-           target="_blank"
-           style="
-             background:#2563EB;
-             color:white;
-             padding:12px 20px;
-             text-decoration:none;
-             border-radius:8px;
-             margin-right:10px;
-           ">
-           🖼 View QR Code
-        </a>
+    <p style="margin:0 0 14px 0;font-size:10px;font-weight:700;letter-spacing:2px;color:#7C3AED;text-transform:uppercase;">
+        Next Steps
+    </p>
 
-        <a href="{whatsapp_url}"
-           target="_blank"
-           style="
-             background:#25D366;
-             color:white;
-             padding:12px 20px;
-             text-decoration:none;
-             border-radius:8px;
-           ">
-           📱 Send WhatsApp Message
-        </a>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
+        <tr>
+            <td>
+                <a href="{qr_view_url}" target="_blank"
+                   style="display:block;background:linear-gradient(135deg,#4C1D95,#7C3AED);color:#FFFFFF;
+                          text-decoration:none;font-size:14px;font-weight:700;text-align:center;
+                          padding:14px 24px;border-radius:8px;letter-spacing:0.5px;">
+                    🎫 &nbsp; View QR Code
+                </a>
+            </td>
+        </tr>
+    </table>
 
-    </body>
-    </html>
-    """)
+    <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+            <td>
+                <a href="{whatsapp_url}" target="_blank"
+                   style="display:block;background:#25D366;color:#FFFFFF;text-decoration:none;
+                          font-size:14px;font-weight:700;text-align:center;padding:14px 24px;
+                          border-radius:8px;letter-spacing:0.5px;">
+                    💬 &nbsp; Send WhatsApp Confirmation
+                </a>
+            </td>
+        </tr>
+    </table>
+    """
+
+    return HTMLResponse(_page_shell(
+        title="Booking Assigned",
+        eyebrow="Booking Assigned",
+        badge="Approved",
+        badge_bg="#D1FAE5",
+        badge_color="#065F46",
+        body_html=body
+    ))
+
 
 @router.get("/reject-booking/{booking_id}")
 def reject_booking_email(
@@ -208,8 +383,7 @@ def reject_booking_email(
 ):
     booking = service.reject_booking(db, booking_id)
 
-    decline_message = f"""
-🙏 *Divya Drishti VR Darshan Booking Update*
+    decline_message = f"""🙏 *Divya Drishti VR Darshan Booking Update*
 
 Namaste {booking.full_name},
 
@@ -220,14 +394,12 @@ After reviewing your booking request, we regret to inform you that we are curren
 ❌ *Booking Status: Declined*
 
 📋 *Booking Details*
-
 • Booking ID: #{booking.id}
 • Date: {booking.slot_date}
 • Time Slot: {booking.slot_time}
 • Persons: {booking.persons}
 
 This may happen due to:
-
 • Slot availability issues
 • Payment verification issues
 • Incomplete booking information
@@ -242,55 +414,73 @@ We sincerely apologize for any inconvenience caused and hope to serve you in the
 
 Warm Regards,
 *Team TirthGhumo*
-Divya Drishti VR Darshan
-"""
-
-
+Divya Drishti VR Darshan"""
 
     whatsapp_url = (
         f"https://wa.me/91{booking.whatsapp_number}"
         f"?text={quote(decline_message)}"
     )
 
-    return HTMLResponse(f"""
-    <html>
-        <body style="font-family:Arial;text-align:center;padding-top:50px;">
-            <h2>❌ Booking Rejected Successfully</h2>
+    body = f"""
+    <p style="margin:0 0 20px 0;font-size:14px;color:#374151;line-height:1.6;">
+        Booking <strong>#{booking.id}</strong> has been marked as declined. You may notify the
+        customer directly over WhatsApp using the button below.
+    </p>
 
-            <a href="{whatsapp_url}"
-               style="background:#25D366;color:white;padding:12px 20px;
-                      text-decoration:none;border-radius:8px;">
-               Send WhatsApp Message
-            </a>
-        </body>
-    </html>
-    """)
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EDE9FE;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+        {_info_row("Customer", booking.full_name)}
+        {_info_row("Date", booking.slot_date, zebra=True)}
+        {_info_row("Time Slot", booking.slot_time)}
+    </table>
 
-@router.patch("/approve/{booking_id}", response_model=DarshanBookingResponse)
-def approve_booking(booking_id: int, db: Session = Depends(get_db)):
-    return  service.approve_booking(db, booking_id , background_tasks=BackgroundTasks())
+    <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+            <td>
+                <a href="{whatsapp_url}" target="_blank"
+                   style="display:block;background:#25D366;color:#FFFFFF;text-decoration:none;
+                          font-size:14px;font-weight:700;text-align:center;padding:14px 24px;
+                          border-radius:8px;letter-spacing:0.5px;">
+                    💬 &nbsp; Send WhatsApp Message
+                </a>
+            </td>
+        </tr>
+    </table>
+    """
+
+    return HTMLResponse(_page_shell(
+        title="Booking Rejected",
+        eyebrow="Booking Rejected",
+        badge="Declined",
+        badge_bg="#FEE2E2",
+        badge_color="#991B1B",
+        body_html=body
+    ))
+
 
 @router.patch("/reject/{booking_id}", response_model=DarshanBookingResponse)
-async  def reject_booking(booking_id: int, db: Session = Depends(get_db)):
+async def reject_booking(booking_id: int, db: Session = Depends(get_db)):
     return service.reject_booking(db, booking_id)
+
 
 @router.post("/verify-qr", response_model=DarshanBookingResponse)
 def verify_qr(verify_in: QRVerifyRequest, db: Session = Depends(get_db)):
     return service.verify_qr(db, verify_in.qr_data)
 
+
 @router.post("/session/start", response_model=DarshanSessionResponse)
 def start_session(start_in: SessionStartRequest, db: Session = Depends(get_db)):
     return service.start_session(db, start_in.booking_id)
+
 
 @router.post("/session/end", response_model=DarshanSessionResponse)
 def end_session(end_in: SessionEndRequest, db: Session = Depends(get_db)):
     return service.end_session(db, end_in.booking_id)
 
 
-
 @router.post("/review", response_model=DarshanReviewResponse)
 def create_review(review_in: DarshanReviewCreate, db: Session = Depends(get_db)):
     return service.create_review(db, review_in)
+
 
 @router.post("/check-extension")
 def check_extension(
@@ -312,6 +502,8 @@ def extend_session(
         db,
         extend_in
     )
+
+
 @router.get("/slots")
 def get_available_slots(
     selected_date: date,

@@ -4,10 +4,11 @@ import qrcode
 import asyncio
 import requests
 import os
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status , BackgroundTasks, UploadFile 
 from typing import List
 from app.utils.supabase_uploads import upload_to_supabase
-from ..models import DarshanBooking, DarshanSession, DarshanReview  , SessionExtension , DarshanParticipant
+from ..models import DarshanBooking, DarshanSession, DarshanReview  , SessionExtension , DarshanParticipant , SaarthiSessionAssignment
 from ..schema import DarshanBookingCreate, DarshanReviewCreate , CompleteBookingDetails , SessionExtensionCreateRequest
 from app.utils.mail.vr_admin_mail import send_admin_vr_darshan_email
 from app.utils.mail.vr_user_mail import send_user_approval_mail  , send_user_decline_mail
@@ -261,6 +262,17 @@ def complete_booking_details(
     db.refresh(booking)
 
     return booking
+def get_booking(db: Session, booking_id: int): ## for mail (admin gets this detail)
+    booking = (
+        db.query(DarshanBooking)
+        .filter(DarshanBooking.id == booking_id)
+        .first()
+    )
+
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+
+    return booking
 
 def get_booking_details(
     db: Session,
@@ -332,7 +344,7 @@ def get_booking_details(
     ]
 }
 
-def approve_booking(db: Session, booking_id: int, background_tasks: BackgroundTasks) -> DarshanBooking:
+def approve_booking(db: Session, booking_id: int, executive_id : int, background_tasks: BackgroundTasks) -> DarshanBooking:
     booking = db.query(DarshanBooking).filter(DarshanBooking.id == booking_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail=f"Booking {booking_id} not found")
@@ -364,6 +376,13 @@ def approve_booking(db: Session, booking_id: int, background_tasks: BackgroundTa
 
     booking.qr_code = qr_code_url
     booking.status = "approved"
+    assignment = SaarthiSessionAssignment(
+        booking_id=booking.id,
+        executive_id=executive_id,
+        status="assigned"
+    )
+
+    db.add(assignment)
 
     try:
         db.commit()
@@ -479,11 +498,22 @@ def start_session(db: Session, booking_id: int) -> DarshanSession:
         
     new_session = DarshanSession(
         booking_id=booking_id,
-        start_time=datetime.now(timezone.utc),
+        start_time= datetime.now(ZoneInfo("Asia/Kolkata")),
         status="active"
     )
     
     booking.status = "started"
+    assignment = (
+    db.query(SaarthiSessionAssignment)
+    .filter(
+        SaarthiSessionAssignment.booking_id == booking_id
+    )
+    .first()
+    )
+
+    if assignment:
+        assignment.status = "started"
+        assignment.started_at = datetime.now(ZoneInfo("Asia/Kolkata"))
     
     db.add(new_session)
     try:
@@ -518,9 +548,35 @@ def end_session(db: Session, booking_id: int) -> DarshanSession:
             detail=f"No active session found for booking ID {booking_id}"
         )
         
-    end_time = datetime.now(timezone.utc)
+    end_time =  datetime.now(ZoneInfo("Asia/Kolkata"))
     session.end_time = end_time
     session.status = "completed"
+
+    assignment = (
+    db.query(SaarthiSessionAssignment)
+    .filter(
+        SaarthiSessionAssignment.booking_id == booking_id
+    )
+    .first()
+    )
+
+    if assignment:
+        assignment.status = "completed"
+        assignment.completed_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        assignment.base_amount = 500      # Your fixed session fee
+        assignment.travel_amount = 0       # Calculate later
+        assignment.extension_amount = (
+            assignment.extension_minutes * 5
+        )
+        assignment.deductions = 0
+        assignment.net_amount = (
+            assignment.base_amount
+            + assignment.travel_amount
+            + assignment.extension_amount
+            - assignment.deductions
+        )
+        # config = get_rate_config(db)
+        # recalculate_assignment(assignment, config)
     
     if session.start_time:
         duration_delta = end_time - session.start_time
@@ -596,7 +652,6 @@ def extend_session(
     db: Session,
     extend_in: SessionExtensionCreateRequest
 ):
-
     booking = db.query(DarshanBooking).filter(
         DarshanBooking.id == extend_in.booking_id
     ).first()
@@ -618,6 +673,7 @@ def extend_session(
             detail=extension_check["message"]
         )
 
+    # Create Extension Participant
     participant = DarshanParticipant(
         booking_id=booking.id,
         full_name=extend_in.full_name,
@@ -626,19 +682,51 @@ def extend_session(
         is_extension=True
     )
 
-
     db.add(participant)
 
-    booking.payment_mode = extend_in.payment_mode
-    booking.end_datetime += timedelta(minutes=30)
+    # Store Extension History
+    extension = SessionExtension(
+        booking_id=booking.id,
+        minutes=30,
+        amount=499
+    )
+
+    db.add(extension)
+
+    # Increase Session End Time
+    booking.end_datetime += timedelta(
+        minutes=30
+    )
+
+    # Update Saarthi Assignment
+    assignment = db.query(SaarthiSessionAssignment).filter(
+        SaarthiSessionAssignment.booking_id == booking.id
+    ).first()
+
+    if assignment:
+
+        assignment.extension_minutes += 30
+
+        assignment.extension_amount += 499
+
+        assignment.net_amount = (
+            float(assignment.base_amount)
+            + float(assignment.travel_amount)
+            + float(assignment.extension_amount)
+            - float(assignment.deductions)
+        )
 
     try:
         db.commit()
+
         db.refresh(participant)
+        db.refresh(extension)
+
+        if assignment:
+            db.refresh(assignment)
 
     except Exception as e:
         db.rollback()
-
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -650,6 +738,8 @@ def extend_session(
         "participant_id": participant.id,
         "booking_id": booking.id,
         "participant_name": participant.full_name,
+        "extension_minutes": 30,
+        "extension_amount": 499,
         "is_extension": participant.is_extension
     }
 def check_extension(
