@@ -1,4 +1,4 @@
-def get_price_per_person_mrignnath(total_people: int , meal_preference : str):
+def get_price_per_person_budhni(total_people: int , meal_preference : str):
     print(meal_preference , total_people)
     if meal_preference == "with_meal":
         if total_people == 1:
@@ -18,7 +18,7 @@ def get_price_per_person_mrignnath(total_people: int , meal_preference : str):
             return 1125
         else:
             return 1101
-def get_price_per_person_chota_pachmarhi(total_people: int , meal_preference : str):
+def get_price_per_person_halali(total_people: int , meal_preference : str):
     print(meal_preference , total_people)
     if meal_preference == "with_meal":
         if total_people == 1:

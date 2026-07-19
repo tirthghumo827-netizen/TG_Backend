@@ -11,9 +11,10 @@ TEMPLATE_PATH = os.path.abspath(os.path.join(BASE_DIR, "../public/invoice_templa
 
 def generate_invoice(
     data,
-    pricing_function,
-    base_price
+    config,
 ):
+    pricing_function = config["pricing_function"]
+    base_price = config["base_price"]
     meal_preference = data.meal_preference
     
 

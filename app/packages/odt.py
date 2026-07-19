@@ -11,7 +11,7 @@ import shutil, os
 from fastapi import BackgroundTasks
 from app.utils.invoice_generator import generate_invoice
 from app.utils.supabase_uploads import upload_to_supabase
-from app.utils.odt_pricing import get_price_per_person_mrignnath, get_price_per_person_chota_pachmarhi
+from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali
 from fastapi.responses import HTMLResponse
 
 from urllib.parse import quote
@@ -21,6 +21,25 @@ router = APIRouter()
 UPLOAD_DIR = "uploads/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+BUDHNI_CONFIG = {
+    "name": "Budhni Trek",
+    "booking_model": models.ODT1,
+    "traveller_model": models.ODTTraveller,
+    "pricing_function": get_price_per_person_budhni,
+    "base_price": 1351,
+    "approve_route": "/odt/budhni/approve",
+    "decline_route": "/odt/budhni/decline",
+}
+HALALI_CONFIG = {
+    "name": "Halali Trek",
+    "booking_model": models.ChotaPachmarhi,
+    "traveller_model": models.ChotaPachmarhiTraveller,
+    "pricing_function": get_price_per_person_halali,
+    "base_price": 1199,
+    "approve_route": "/odt/halali/approve",
+    "decline_route": "/odt/halali/decline",
+}
+
 def create_odt_booking(
     *,
     db: Session,
@@ -29,12 +48,12 @@ def create_odt_booking(
     trek_date: str,
     agree: bool,
     payment_screenshot: UploadFile,
-    booking_model,
-    traveller_model,
-    pricing_function,
+    config: dict,
 ):
     total_people = len(travellers_list)
-
+    model = config["booking_model"]
+    pricing_function = config["pricing_function"]
+    traveller_model = config["traveller_model"]
     if total_people == 0:
         raise HTTPException(
             status_code=400,
@@ -60,7 +79,7 @@ def create_odt_booking(
         with open(file_location, "wb") as buffer:
             shutil.copyfileobj(payment_screenshot.file, buffer)
 
-    booking = booking_model(
+    booking = model(
         primary_email=travellers_list[0]["email_address"],
         primary_traveller_name=travellers_list[0]["full_name"],
         primary_traveller_contact=travellers_list[0]["contact_number"],
@@ -103,23 +122,18 @@ def approve_booking_helper(
     booking_id: int,
     background_tasks: BackgroundTasks,
     db: Session,
-    booking_model,
-    pricing_function,
-    base_price
+    config: dict,
 ):
-    booking = (
-        db.query(booking_model)
-        .filter(booking_model.id == booking_id)
-        .first()
-    )
+    booking = db.query(config["booking_model"]).filter(
+    config["booking_model"].id == booking_id
+    ).first()
 
     if not booking:
         raise HTTPException(404, "Booking not found")
 
     invoice_path = generate_invoice(
         booking,
-        pricing_function=pricing_function,
-        base_price=base_price,
+        config
     )
 
     booking.status = "approved"
@@ -205,18 +219,14 @@ async def odt_booking(
     trek_date=trek_date,
     agree=agree,
     payment_screenshot=payment_screenshot,
-    booking_model=models.ODT1,
-    traveller_model=models.ODTTraveller,
-    pricing_function=get_price_per_person_mrignnath,
+    config=BUDHNI_CONFIG
 )
 
     background_tasks.add_task(
         send_booking_email,
         booking.id,
         db,
-        models.ODT1,
-        models.ODTTraveller,
-        "Budhni Trek" ,  # Pass the trek name for email subject
+        BUDHNI_CONFIG,
         file_location,
     )
 
@@ -249,18 +259,14 @@ async def odt_booking(
     trek_date=trek_date,
     agree=agree,
     payment_screenshot=payment_screenshot,
-    booking_model=models.ChotaPachmarhi,
-    traveller_model=models.ChotaPachmarhiTraveller,
-    pricing_function=get_price_per_person_chota_pachmarhi,
+    config=HALALI_CONFIG
 )
 
     background_tasks.add_task(
         send_booking_email,
         booking.id,
         db,
-        models.ChotaPachmarhi,
-        models.ChotaPachmarhiTraveller,
-        "Halali Trek" ,  # Pass the trek name for email subject
+        HALALI_CONFIG,
         file_location,
     )
 
@@ -425,7 +431,7 @@ Team TirthGhumo
 """.strip()
 
 
-@router.get("/odt/approve")
+@router.get("/odt/budhni/approve")
 def approve_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
@@ -439,7 +445,7 @@ def approve_booking(
         pricing_function=get_price_per_person_mrignnath,
         base_price=1351,
     )
-@router.get("/odt/chota_pachmarhi/approve")
+@router.get("/odt/halali/approve")
 def approve_chota_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
@@ -454,7 +460,7 @@ def approve_chota_booking(
         base_price=1199,
     )
 
-@router.get("/odt/decline")
+@router.get("/odt/budhni/decline")
 def decline_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
@@ -466,7 +472,7 @@ def decline_booking(
         db,
         models.ODT1,
     )
-@router.get("/odt/chota_pachmarhi/decline")
+@router.get("/odt/halali/decline")
 def decline_chota_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,

@@ -29,18 +29,18 @@ base_url = settings.base_url
 def send_booking_email(
     booking_id: int,
     db: Session,
-    booking_model,
-    traveller_model,
-    trek_name: str,
+    config: dict,
     image_path: str | None = None
 ):
-    booking = db.query(booking_model).filter(
-    booking_model.id == booking_id
+    booking = db.query(config["booking_model"]).filter(
+    config["booking_model"].id == booking_id
     ).first()
 
-    travellers = db.query(traveller_model).filter(
-    traveller_model.booking_id == booking_id
+    travellers = db.query(config["traveller_model"]).filter(
+        config["traveller_model"].booking_id == booking_id
     ).all()
+
+    trek_name = config["name"]
 
     # --- Traveller rows ---
     traveller_rows = ""
@@ -62,8 +62,13 @@ def send_booking_email(
         """ 
 
     # --- Links --- 
-    approve_link = f"https://web-production-b9395.up.railway.app/odt/approve?booking_id={booking_id}"
-    decline_link = f"https://web-production-b9395.up.railway.app/odt/decline?booking_id={booking_id}"
+    approve_link = (
+    f"{base_url}{config['approve_route']}?booking_id={booking_id}"
+    )
+
+    decline_link = (
+        f"{base_url}{config['decline_route']}?booking_id={booking_id}"
+    )
 
     received_at = datetime.now().strftime("%d %b %Y · %I:%M %p")
 
