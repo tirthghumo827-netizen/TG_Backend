@@ -380,6 +380,26 @@ def get_price_per_person_qr(total_people: int , meal_preference : str):
           return 1125
       else:
           return 1101
+def get_price_per_person_chota_pachmarhi_qr(total_people: int , meal_preference : str):
+    
+  if meal_preference == "true":
+      if total_people == 1:
+          return 1199
+      elif total_people <= 3:
+          return 1165
+      elif total_people <= 5:  
+          return 1140
+      else:   
+          return 1115
+  else:
+      if total_people  == 1:
+          return 1040
+      elif total_people <= 3:
+          return 1015
+      elif total_people <= 5:
+          return 999
+      else:
+          return 965
 
 @router.get("/odt/qr")
 async def generate_odt_qr(
@@ -388,6 +408,28 @@ async def generate_odt_qr(
 ):
   # print("MEAL PREF:", meal_preference)
   amount = get_price_per_person_qr(number_of_people , meal_preference) * number_of_people
+
+    # if meal_preference == "with_meal":
+    #     amount = with_meal_amount
+    # else:
+    #     amount = without_meal_amount
+
+    # if is_coupon_applied:
+    #     amount = amount - 100
+
+  qr_url = create_qr_base64(amount)
+  print("AMOUNT:", amount)
+  return {
+      "payment_qr_url": qr_url,
+      "amount": amount
+  } 
+@router.get("/odt/chota-pachmarhi/qr")
+async def generate_odt_qr(
+  number_of_people: int,
+  meal_preference:str
+):
+  # print("MEAL PREF:", meal_preference)
+  amount = get_price_per_person_chota_pachmarhi_qr(number_of_people , meal_preference) * number_of_people
 
     # if meal_preference == "with_meal":
     #     amount = with_meal_amount

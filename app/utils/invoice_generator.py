@@ -5,18 +5,23 @@ import uuid
 import os
 import json
 from app.utils.pricing.pachmarhi import get_price_per_person
-from app.utils.odt_pricing import get_price_per_person
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.abspath(os.path.join(BASE_DIR, "../public/invoice_template.jpg"))
 
-def generate_invoice(data):
+def generate_invoice(
+    data,
+    pricing_function,
+    base_price
+):
     meal_preference = data.meal_preference
     
 
     quantity = data.total_people
-    total = 1351 * quantity
+    total = base_price * quantity
     
-    amount = quantity * get_price_per_person(quantity , meal_preference)
+    price_per_person = pricing_function(quantity, meal_preference)
+    amount = quantity * price_per_person
     discount = total - amount
     
     file_name = f"invoice_{uuid.uuid4().hex[:8]}.pdf"
@@ -49,7 +54,7 @@ def generate_invoice(data):
     # c.drawString(25 * mm, 185 * mm, "1 Day Adventure Trek")
     c.drawString(124 * mm, 142 * mm, str(quantity))
     # if(amount == 1101 or amount == 1251): # Holi Offer Applied
-    c.drawString(145 * mm, 142 * mm,str(1351))
+    c.drawString(145 * mm, 142 * mm,str(base_price))
     c.drawString(173 * mm, 142 * mm, str(total))
     c.drawString(170 * mm, 104 * mm, str(total))   # Subtotal
     c.drawString(170 * mm, 89 * mm, str(discount))     # Discount
@@ -89,61 +94,3 @@ def generate_invoice(data):
     # c.drawString(75 * mm, 66 * mm, str(amount))
     # c.drawString(75 * mm, 54 * mm, "0")
     
-def generate_invoice_pachmarhi(data):
-    meal_preference = data.meal_preference
-    quantity = data.total_people
-    sharing_preference = data.sharing_preference
-
-    # Pricing
-    package_price = get_price_per_person(quantity, meal_preference, sharing_preference)
-    full_total = quantity * package_price
-
-    # Payment calculation
-    is_partial = data.payment_option == "partial"
-    amount_to_pay = full_total / 2 if is_partial else full_total
-    discount = 0  # 0 if full, half if partial
-    balance_remaining = full_total - amount_to_pay  # same as discount
-
-#     payment_label = "Partial Payment (50%)" if is_partial else "Full Payment"
-
-    # File setup
-    file_name = f"invoice_{uuid.uuid4().hex[:8]}.pdf"
-    invoices_folder = os.path.abspath(os.path.join(BASE_DIR, "../invoices"))
-    os.makedirs(invoices_folder, exist_ok=True)
-    file_path = os.path.join(invoices_folder, file_name)
-
-    c = canvas.Canvas(file_path, pagesize=A4)
-    width, height = A4
-
-    c.drawImage(TEMPLATE_PATH, 0, 0, width=width, height=height)
-
-    # Invoice number and date
-    invoice_no = f"INV-{data.id}"
-    submitted_date = getattr(data, "submitted_at", None)
-    date_text = str(submitted_date.date()) if submitted_date else "N/A"
-
-    c.drawString(149 * mm, 198 * mm, invoice_no)
-    c.drawString(137 * mm, 187 * mm, date_text)
-
-    # Bill to
-    c.drawString(52 * mm, 198 * mm, data.primary_traveller_name)
-
-    # Package details
-    c.drawString(124 * mm, 142 * mm, str(quantity))
-    c.drawString(145 * mm, 142 * mm, str(package_price))
-    c.drawString(173 * mm, 142 * mm, str(full_total))   # line total (always full)
-
-    # Totals section
-    c.drawString(170 * mm, 104 * mm, str(full_total))       # Subtotal (always full)
-    c.drawString(170 * mm, 89 * mm, str(discount))          # Discount (0 if full, half if partial)
-    c.drawString(170 * mm, 71 * mm, str(full_total))     # Total due
-
-    # Payment details
-    c.drawString(75 * mm, 76 * mm, "UPI")                   # "Partial Payment (50%)" or "Full Payment"
-    c.drawString(75 * mm, 66 * mm, str(amount_to_pay))              # Amount paid now
-    c.drawString(75 * mm, 54 * mm, str(balance_remaining))          # Balance remaining (0 if full)
-
-    print(f"Full: {full_total} | To Pay: {amount_to_pay} | Discount: {discount} | Balance: {balance_remaining}")
-
-    c.save()
-    return file_path

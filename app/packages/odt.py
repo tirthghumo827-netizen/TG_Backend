@@ -11,7 +11,7 @@ import shutil, os
 from fastapi import BackgroundTasks
 from app.utils.invoice_generator import generate_invoice
 from app.utils.supabase_uploads import upload_to_supabase
-from app.utils.odt_pricing import get_price_per_person
+from app.utils.odt_pricing import get_price_per_person_mrignnath, get_price_per_person_chota_pachmarhi
 from fastapi.responses import HTMLResponse
 
 from urllib.parse import quote
@@ -21,8 +21,167 @@ router = APIRouter()
 UPLOAD_DIR = "uploads/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+def create_odt_booking(
+    *,
+    db: Session,
+    travellers_list: list,
+    meal_preference: str,
+    trek_date: str,
+    agree: bool,
+    payment_screenshot: UploadFile,
+    booking_model,
+    traveller_model,
+    pricing_function,
+):
+    total_people = len(travellers_list)
 
+    if total_people == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one traveller required"
+        )
 
+    price_per_person = pricing_function(total_people, meal_preference)
+    total_price = price_per_person * total_people
+
+    if not total_price:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid group size"
+        )
+
+    file_location = None
+
+    if payment_screenshot:
+        unique_id = uuid.uuid4().hex
+        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
+        file_location = os.path.join(UPLOAD_DIR, file_name)
+
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(payment_screenshot.file, buffer)
+
+    booking = booking_model(
+        primary_email=travellers_list[0]["email_address"],
+        primary_traveller_name=travellers_list[0]["full_name"],
+        primary_traveller_contact=travellers_list[0]["contact_number"],
+        total_people=total_people,
+        total_price=total_price,
+        meal_preference=meal_preference,
+        trek_date=trek_date,
+        agree=agree,
+        payment_screenshot=file_location,
+        status="pending"
+    )
+
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+
+    for traveller in travellers_list:
+        db.add(
+            traveller_model(
+                booking_id=booking.id,
+                full_name=traveller["full_name"],
+                email_address=traveller["email_address"],
+                age=traveller["age"],
+                gender=traveller["gender"],
+                contact_number=traveller["contact_number"],
+                whatsapp_number=traveller["whatsapp_number"],
+                college_name=traveller["college_name"],
+                pick_up_loc=traveller["pick_up_loc"],
+                drop_loc=traveller["drop_loc"],
+                trip_exp_level=traveller.get("trip_exp_level"),
+                medical_details=traveller.get("medical_details"),
+            )
+        )
+
+    db.commit()
+
+    return booking, file_location, total_people, total_price
+
+def approve_booking_helper(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session,
+    booking_model,
+    pricing_function,
+    base_price
+):
+    booking = (
+        db.query(booking_model)
+        .filter(booking_model.id == booking_id)
+        .first()
+    )
+
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+
+    invoice_path = generate_invoice(
+        booking,
+        pricing_function=pricing_function,
+        base_price=base_price,
+    )
+
+    booking.status = "approved"
+
+    db.commit()
+    db.refresh(booking)
+
+    background_tasks.add_task(
+        send_email_with_invoice,
+        booking.primary_email,
+        booking,
+        invoice_path,
+    )
+
+    whatsapp_message = _build_odt_whatsapp_message(booking)
+
+    whatsapp_url = (
+        f"https://wa.me/91{booking.primary_traveller_contact}"
+        f"?text={quote(whatsapp_message, safe='', encoding='utf-8')}"
+    )
+
+    return _status_page(
+        title="Booking Approved",
+        message=f"Booking <strong>#TG-{booking_id}</strong> has been approved. "
+                f"The confirmation email and invoice have been sent to the customer.",
+        color="#16a34a",
+        icon="✓",
+        whatsapp_url=whatsapp_url,
+        whatsapp_label="Send WhatsApp to Customer",
+    )
+def decline_booking_helper(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session,
+    booking_model,
+):
+    booking = (
+        db.query(booking_model)
+        .filter(booking_model.id == booking_id)
+        .first()
+    )
+
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+
+    booking.status = "declined"
+
+    db.commit()
+
+    background_tasks.add_task(
+        send_booking_declined_email,
+        booking,
+        booking.primary_email,
+    )
+
+    return _status_page(
+        title="Booking Declined",
+        message=f"Booking <strong>#TG-{booking_id}</strong> has been declined. "
+                f"The customer has been notified via email.",
+        color="#dc2626",
+        icon="✕",
+    )
 
 
 @router.post("/odt_booking", status_code=status.HTTP_201_CREATED)
@@ -39,102 +198,33 @@ async def odt_booking(
     
     travellers_list = json.loads(travellers)
     
-    try:
-        print("RAW travellers:", travellers)
-        print(type(travellers))
-        travellers_list = json.loads(travellers)
-
-        if not isinstance(travellers_list, list):
-            raise ValueError("Travellers must be a list")
-
-    except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid travellers data"
-        )
-
-    total_people = len(travellers_list)
-
-    if total_people == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="At least one traveller required"
-        )
-
-    price_per_person = get_price_per_person(total_people , meal_preference)
-    total_price = price_per_person * total_people
-
-    if not total_price:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid group size"
-        )
-
-    # Save screenshot
-    file_location = None
-
-    if payment_screenshot:
-        unique_id = uuid.uuid4().hex
-        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
-        file_location = os.path.join(UPLOAD_DIR, file_name)
-
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(payment_screenshot.file, buffer)
-    primary_email = travellers_list[0]["email_address"]
-    primary_traveller_name = travellers_list[0]["full_name"]
-    primary_traveller_contact = travellers_list[0]["contact_number"]
-    # Create booking
-    booking = models.ODT1(
-        primary_email=primary_email,
-        primary_traveller_name=primary_traveller_name,
-        primary_traveller_contact=primary_traveller_contact,
-        total_people=total_people,
-        total_price=total_price,
-        meal_preference=meal_preference,
-        trek_date=trek_date, 
-        agree=agree,
-        payment_screenshot=file_location,
-        status="pending"
-    )
-
-    db.add(booking)
-    db.commit()
-    db.refresh(booking)
-
-    # Add travellers
-    for traveller in travellers_list:
-        traveller_data = models.ODTTraveller(
-            booking_id=booking.id,
-            full_name=traveller["full_name"],
-            email_address=traveller["email_address"],
-            age=traveller["age"],
-            gender=traveller["gender"],
-            contact_number=traveller["contact_number"],
-            whatsapp_number=traveller["whatsapp_number"],
-            college_name=traveller["college_name"],
-            pick_up_loc=traveller["pick_up_loc"],
-            drop_loc=traveller["drop_loc"],
-            trip_exp_level=traveller.get("trip_exp_level"),
-            medical_details=traveller.get("medical_details")
-        )
-
-        db.add(traveller_data)
-
-
-    db.commit()
+    booking, file_location, total_people, total_price = create_odt_booking(
+    db=db,
+    travellers_list=travellers_list,
+    meal_preference=meal_preference,
+    trek_date=trek_date,
+    agree=agree,
+    payment_screenshot=payment_screenshot,
+    booking_model=models.ODT1,
+    traveller_model=models.ODTTraveller,
+    pricing_function=get_price_per_person_mrignnath,
+)
 
     background_tasks.add_task(
-    send_booking_email,
-    booking.id,
-    db,
-    file_location
+        send_booking_email,
+        booking.id,
+        db,
+        models.ODT1,
+        models.ODTTraveller,
+        "Budhni Trek" ,  # Pass the trek name for email subject
+        file_location,
     )
 
     return {
         "message": "Booking successful",
         "booking_id": booking.id,
         "total_people": total_people,
-        "total_price": total_price
+        "total_price": total_price,
     }
 
 # Chota Pachmarhi Route 
@@ -152,109 +242,40 @@ async def odt_booking(
     
     travellers_list = json.loads(travellers)
     
-    try:
-        print("RAW travellers:", travellers)
-        print(type(travellers))
-        travellers_list = json.loads(travellers)
-
-        if not isinstance(travellers_list, list):
-            raise ValueError("Travellers must be a list")
-
-    except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid travellers data"
-        )
-
-    total_people = len(travellers_list)
-
-    if total_people == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="At least one traveller required"
-        )
-
-    price_per_person = get_price_per_person(total_people , meal_preference)
-    total_price = price_per_person * total_people
-
-    if not total_price:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid group size"
-        )
-
-    # Save screenshot
-    file_location = None
-
-    if payment_screenshot:
-        unique_id = uuid.uuid4().hex
-        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
-        file_location = os.path.join(UPLOAD_DIR, file_name)
-
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(payment_screenshot.file, buffer)
-    primary_email = travellers_list[0]["email_address"]
-    primary_traveller_name = travellers_list[0]["full_name"]
-    primary_traveller_contact = travellers_list[0]["contact_number"]
-    # Create booking
-    booking = models.ChotaPachmarhi(
-        primary_email=primary_email,
-        primary_traveller_name=primary_traveller_name,
-        primary_traveller_contact=primary_traveller_contact,
-        total_people=total_people,
-        total_price=total_price,
-        meal_preference=meal_preference,
-        trek_date=trek_date, 
-        agree=agree,
-        payment_screenshot=file_location,
-        status="pending"
-    )
-
-    db.add(booking)
-    db.commit()
-    db.refresh(booking)
-
-    # Add travellers
-    for traveller in travellers_list:
-        traveller_data = models.ChotaPachmarhiTraveller(
-            booking_id=booking.id,
-            full_name=traveller["full_name"],
-            email_address=traveller["email_address"],
-            age=traveller["age"],
-            gender=traveller["gender"],
-            contact_number=traveller["contact_number"],
-            whatsapp_number=traveller["whatsapp_number"],
-            college_name=traveller["college_name"],
-            pick_up_loc=traveller["pick_up_loc"],
-            drop_loc=traveller["drop_loc"],
-            trip_exp_level=traveller.get("trip_exp_level"),
-            medical_details=traveller.get("medical_details")
-        )
-
-        db.add(traveller_data)
-
-
-    db.commit()
+    booking, file_location, total_people, total_price = create_odt_booking(
+    db=db,
+    travellers_list=travellers_list,
+    meal_preference=meal_preference,
+    trek_date=trek_date,
+    agree=agree,
+    payment_screenshot=payment_screenshot,
+    booking_model=models.ChotaPachmarhi,
+    traveller_model=models.ChotaPachmarhiTraveller,
+    pricing_function=get_price_per_person_chota_pachmarhi,
+)
 
     background_tasks.add_task(
-    send_booking_email,
-    booking.id,
-    db,
-    file_location
+        send_booking_email,
+        booking.id,
+        db,
+        models.ChotaPachmarhi,
+        models.ChotaPachmarhiTraveller,
+        "Halali Trek" ,  # Pass the trek name for email subject
+        file_location,
     )
 
     return {
         "message": "Booking successful",
         "booking_id": booking.id,
         "total_people": total_people,
-        "total_price": total_price
+        "total_price": total_price,
     }
-
 
 
 ODT_WHATSAPP_GROUPS = {
     # "2026-07-12": "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0", #B9
     "2026-07-26": "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0",  # B10
+    "2026-08-22": "https://chat.whatsapp.com/HIwU7EwT5iyAkQhX73ZP81?s=cl&p=i&mlu=0&ilr=0" , # Halali Trek
     # add more trek dates here as needed
 }
 
@@ -408,68 +429,52 @@ Team TirthGhumo
 def approve_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    booking = db.query(models.ODT1).filter(
-        models.ODT1.id == booking_id
-    ).first()
-
-    if not booking:
-        raise HTTPException(404, "Booking not found")
-
-    invoice_path = generate_invoice(booking)
-    booking.status = "approved"
-    db.commit()
-    db.refresh(booking)
-
-    background_tasks.add_task(
-        send_email_with_invoice,
-        booking.primary_email,
-        booking,
-        invoice_path
+    return approve_booking_helper(
+        booking_id,
+        background_tasks,
+        db,
+        booking_model=models.ODT1,
+        pricing_function=get_price_per_person_mrignnath,
+        base_price=1351,
     )
-
-    whatsapp_message = _build_odt_whatsapp_message(booking)
-    whatsapp_url = f"https://wa.me/91{booking.primary_traveller_contact}?text={quote(whatsapp_message, safe='', encoding='utf-8')}"
-
-    return _status_page(
-        title="Booking Approved",
-        message=f"Booking <strong>#TG-{booking_id}</strong> has been approved. "
-                f"The confirmation email and invoice have been sent to the customer.",
-        color="#16a34a",
-        icon="✓",
-        whatsapp_url=whatsapp_url,
-        whatsapp_label="Send WhatsApp to Customer"
+@router.get("/odt/chota_pachmarhi/approve")
+def approve_chota_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    return approve_booking_helper(
+        booking_id,
+        background_tasks,
+        db,
+        booking_model=models.ChotaPachmarhi,
+        pricing_function=get_price_per_person_chota_pachmarhi,
+        base_price=1199,
     )
-
 
 @router.get("/odt/decline")
 def decline_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    booking = db.query(models.ODT1).filter(
-        models.ODT1.id == booking_id
-    ).first()
-
-    if not booking:
-        raise HTTPException(404, "Booking not found")
-
-    booking.status = "declined"
-    db.commit()
-
-    background_tasks.add_task(
-        send_booking_declined_email,
-        booking,
-        booking.primary_email
+    return decline_booking_helper(
+        booking_id,
+        background_tasks,
+        db,
+        models.ODT1,
     )
-
-    # No WhatsApp button on decline — email handles it
-    return _status_page(
-        title="Booking Declined",
-        message=f"Booking <strong>#TG-{booking_id}</strong> has been declined. "
-                f"The customer has been notified via email.",
-        color="#dc2626",
-        icon="✕"
+@router.get("/odt/chota_pachmarhi/decline")
+def decline_chota_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    return decline_booking_helper(
+        booking_id,
+        background_tasks,
+        db,
+        models.ChotaPachmarhi,
     )
