@@ -11,7 +11,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-
+from app.utils.supabase_uploads import upload_to_supabase
 from fastapi import File, Form, UploadFile
 
 from ..executive_schema import (
@@ -31,11 +31,7 @@ from ..models import (
     SaarthiPayout,
     SaarthiSessionAssignment,
 )
-UPLOAD_DIR = Path("static/executive_photos")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-MAX_PHOTO_SIZE_MB = 5
 
 router = APIRouter(
     prefix="/divya-drishti/executive-panel",
@@ -227,37 +223,6 @@ def get_profile(executive_id: int = Query(...), db: Session = Depends(get_db)):
     return get_executive(db, executive_id)
 
 
-def save_photo_file(executive_id: int, file: UploadFile) -> str:
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
-        )
-
-    file.file.seek(0, os.SEEK_END)
-    size_mb = file.file.tell() / (1024 * 1024)
-    file.file.seek(0)
-    if size_mb > MAX_PHOTO_SIZE_MB:
-        raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_PHOTO_SIZE_MB}MB")
-
-    filename = f"executive_{executive_id}_{uuid.uuid4().hex}{ext}"
-    destination = UPLOAD_DIR / filename
-
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return f"/static/executive_photos/{filename}"
-
-
-def delete_old_photo(photo_url: Optional[str]) -> None:
-    if not photo_url:
-        return
-    old_path = Path(photo_url.lstrip("/"))
-    if old_path.exists() and old_path.is_file():
-        old_path.unlink(missing_ok=True)
-
-
 @router.put("/profile", response_model=ExecutiveProfileResponse)
 def update_profile(
     executive_id: int = Query(...),
@@ -284,10 +249,10 @@ def update_profile(
         executive.zone = zone
     if base_location is not None:
         executive.base_location = base_location
-        
+
     if photo is not None:
         old_photo_url = executive.photo_url
-        executive.photo_url = save_photo_file(executive_id, photo)
+        executive.photo_url = upload_to_supabase(photo, folder="executive_photos")
         delete_old_photo(old_photo_url)
 
     db.commit()
