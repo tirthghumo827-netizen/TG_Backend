@@ -251,9 +251,8 @@ def update_profile(
         executive.base_location = base_location
 
     if photo is not None:
-        old_photo_url = executive.photo_url
         executive.photo_url = upload_to_supabase(photo, folder="executive_photos")
-        delete_old_photo(old_photo_url)
+        
 
     db.commit()
     db.refresh(executive)
