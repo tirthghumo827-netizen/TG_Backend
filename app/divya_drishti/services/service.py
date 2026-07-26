@@ -344,7 +344,13 @@ def get_booking_details(
     ]
 }
 
-def approve_booking(db: Session, booking_id: int, executive_id : int, background_tasks: BackgroundTasks) -> DarshanBooking:
+def approve_booking(
+    db: Session,
+    booking_id: int,
+    executive_id: int,
+    background_tasks: BackgroundTasks,
+    distance_km: float,
+) -> DarshanBooking:
     booking = db.query(DarshanBooking).filter(DarshanBooking.id == booking_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail=f"Booking {booking_id} not found")
@@ -358,12 +364,10 @@ def approve_booking(db: Session, booking_id: int, executive_id : int, background
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
 
-    # Save to bytes buffer instead of disk
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
 
-    # Upload to Supabase so Twilio can access it via public URL
     try:
         qr_code_url = upload_to_supabase_bytes(
             file_bytes=buffer,
@@ -376,10 +380,20 @@ def approve_booking(db: Session, booking_id: int, executive_id : int, background
 
     booking.qr_code = qr_code_url
     booking.status = "approved"
+
+    # Travel amount — same slab logic used in executive.update_distance
+    if distance_km <= 40:
+        travel_amount = distance_km * 5
+    else:
+        travel_amount = distance_km * 6
+
     assignment = SaarthiSessionAssignment(
         booking_id=booking.id,
         executive_id=executive_id,
-        status="assigned"
+        status="assigned",
+        distance_km=distance_km,
+        travel_amount=travel_amount,
+        net_amount=travel_amount,   # extension_amount/deductions are 0 at creation
     )
 
     db.add(assignment)
@@ -387,9 +401,6 @@ def approve_booking(db: Session, booking_id: int, executive_id : int, background
     try:
         db.commit()
         db.refresh(booking)
-        
-        
-    
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to approve booking: {str(e)}")

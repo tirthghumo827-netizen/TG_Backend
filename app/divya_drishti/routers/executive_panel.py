@@ -1,11 +1,11 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
-
+from geopy.geocoders import Nominatim
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-
+import requests
 from app.database import get_db
 import os
 import shutil
@@ -31,12 +31,33 @@ from ..models import (
     SaarthiPayout,
     SaarthiSessionAssignment,
 )
+API_KEY = "AIzaSyBkDkW77F8ewgBQon88xbrHdGb62iv1VLY"
+address = "Indrapuri Sector C, Bhopal"
+url = "https://maps.googleapis.com/maps/api/geocode/json"
 
+response = requests.get(
+    url,
+    params={
+        "address": address,
+        "key": API_KEY,
+    },
+)
+
+data = response.json()
+
+if data["status"] == "OK":
+    location = data["results"][0]["geometry"]["location"]
+
+    print("Latitude :", location["lat"])
+    print("Longitude:", location["lng"])
+else:
+    print(data)
 
 router = APIRouter(
     prefix="/divya-drishti/executive-panel",
     tags=["Saarthi Executive Panel"],
 )
+
 
 
 def money(value) -> Decimal:
@@ -257,8 +278,40 @@ def update_profile(
     db.commit()
     db.refresh(executive)
     return executive
+@router.put("/distance")
+def update_distance(
+    executive_id: int = Query(...),
+    assignment_id: int = Query(...),
+    distance_km: float = Form(..., gt=0),
+    db: Session = Depends(get_db),
+):
+    assignment = get_assignment(db, executive_id, assignment_id)
 
+    assignment.distance_km = distance_km
 
+    # Travel amount calculation
+    if distance_km <= 40:
+        travel_amount = distance_km * 5
+    else:
+        travel_amount = distance_km * 6
+
+    assignment.travel_amount = travel_amount
+
+    assignment.net_amount = (
+        float(assignment.travel_amount)
+        + float(assignment.extension_amount)
+        - float(assignment.deductions)
+    )
+
+    db.commit()
+    db.refresh(assignment)
+
+    return {
+        "message": "Distance updated successfully",
+        "travel_amount": travel_amount,
+        "net_amount": float(assignment.net_amount),
+        "assignment": assignment_response(assignment)
+    }
 @router.get("/sessions", response_model=list[SessionAssignmentResponse])
 def get_sessions(
     executive_id: int = Query(...),
