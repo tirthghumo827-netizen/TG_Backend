@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
-from geopy.geocoders import Nominatim
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -31,27 +31,7 @@ from ..models import (
     SaarthiPayout,
     SaarthiSessionAssignment,
 )
-API_KEY = "AIzaSyBkDkW77F8ewgBQon88xbrHdGb62iv1VLY"
-address = "Indrapuri Sector C, Bhopal"
-url = "https://maps.googleapis.com/maps/api/geocode/json"
 
-response = requests.get(
-    url,
-    params={
-        "address": address,
-        "key": API_KEY,
-    },
-)
-
-data = response.json()
-
-if data["status"] == "OK":
-    location = data["results"][0]["geometry"]["location"]
-
-    print("Latitude :", location["lat"])
-    print("Longitude:", location["lng"])
-else:
-    print(data)
 
 router = APIRouter(
     prefix="/divya-drishti/executive-panel",
