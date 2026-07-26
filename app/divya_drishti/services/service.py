@@ -321,7 +321,7 @@ def get_booking_details(
     "status": booking.status,
     "payment_status": booking.payment_status,
     "qr_code": booking.qr_code,
-
+ 
     "participants": [
         {
             "id": p.id,
