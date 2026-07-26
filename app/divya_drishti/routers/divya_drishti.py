@@ -289,6 +289,100 @@ def approve_booking_submit(
         background_tasks,
         distance_km=distance_km,
     )
+
+    executive = db.query(Executive).filter(Executive.id == executive_id).first()
+    executive_name = executive.full_name if executive else "Saarthi"
+
+    short_qr_url = service.shorten_url(booking.qr_code)
+
+    whatsapp_message = f"""🙏 *Divya Drishti VR Darshan Booking Confirmed*
+
+Namaste {booking.full_name},
+
+We are delighted to inform you that your booking has been approved.
+
+📋 *Booking Details*
+- Booking ID: #{booking.id}
+- Date: {booking.slot_date}
+- Time Slot: {booking.slot_time}
+- Persons: {booking.persons}
+
+🎫 Your QR Code: {short_qr_url}
+
+📝 *Important Instructions*
+- Please be available 15 minutes before your scheduled slot.
+- Keep your phone reachable.
+- Our Saarthi will contact you before arrival.
+- If you need to reschedule, contact us at least 24 hours before the session.
+
+📞 Support: 6260499299
+📧 enquiry.tirthghumo@gmail.com
+
+We hope this spiritual experience brings peace, positivity and divine blessings into your life. 🌸🙏
+
+Warm Regards,
+*Team TirthGhumo*
+Divya Drishti VR Darshan"""
+
+    whatsapp_url = (
+        f"https://wa.me/91{booking.whatsapp_number}"
+        f"?text={quote(whatsapp_message)}"
+    )
+
+    qr_view_url = f"/divya-drishti/qr/{booking.id}"
+
+    body = f"""
+    <p style="margin:0 0 20px 0;font-size:14px;color:#374151;line-height:1.6;">
+        Booking <strong>#{booking.id}</strong> has been assigned to <strong>{executive_name}</strong>.
+        The QR code is ready and a confirmation message is prepared for the customer.
+    </p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EDE9FE;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+        {_info_row("Customer", booking.full_name)}
+        {_info_row("Assigned Saarthi", executive_name, zebra=True)}
+        {_info_row("Date", booking.slot_date)}
+        {_info_row("Time Slot", booking.slot_time, zebra=True)}
+    </table>
+
+    <p style="margin:0 0 14px 0;font-size:10px;font-weight:700;letter-spacing:2px;color:#7C3AED;text-transform:uppercase;">
+        Next Steps
+    </p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
+        <tr>
+            <td>
+                <a href="{qr_view_url}" target="_blank"
+                   style="display:block;background:linear-gradient(135deg,#4C1D95,#7C3AED);color:#FFFFFF;
+                          text-decoration:none;font-size:14px;font-weight:700;text-align:center;
+                          padding:14px 24px;border-radius:8px;letter-spacing:0.5px;">
+                    🎫 &nbsp; View QR Code
+                </a>
+            </td>
+        </tr>
+    </table>
+
+    <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+            <td>
+                <a href="{whatsapp_url}" target="_blank"
+                   style="display:block;background:#25D366;color:#FFFFFF;text-decoration:none;
+                          font-size:14px;font-weight:700;text-align:center;padding:14px 24px;
+                          border-radius:8px;letter-spacing:0.5px;">
+                    💬 &nbsp; Send WhatsApp Confirmation
+                </a>
+            </td>
+        </tr>
+    </table>
+    """
+
+    return HTMLResponse(_page_shell(
+        title="Booking Assigned",
+        eyebrow="Booking Assigned",
+        badge="Approved",
+        badge_bg="#D1FAE5",
+        badge_color="#065F46",
+        body_html=body
+    ))
     
 
 @router.get("/reject-booking/{booking_id}")
