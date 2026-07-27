@@ -480,17 +480,25 @@ async def generate_divya_drishti_qr(
   persons: int,
   db: Session = Depends(get_db)
 ):
-  occupied_units = ceil(
-        persons / 2
-    )
-  booking_price = 175 * occupied_units 
-  
+  amount = 499
 
-  qr_url = create_qr_base64(booking_price)
+  if persons <= 2:
+      return amount
+
+  for person in range(3, persons + 1):
+      if person % 2 == 1:
+          # First person of the new pair
+          amount += 250
+      else:
+          # Second person completes the pair
+          amount += 100
+
+
+  qr_url = create_qr_base64(amount)
 
   return {
       "payment_qr_url": qr_url,
-      "amount": booking_price
+      "amount": amount
   }
 
 @router.get("/divya-drishti/initialqr")
@@ -499,20 +507,27 @@ async def generate_divya_drishti_qr(
   partial:bool , 
   db: Session = Depends(get_db)
 ):
-  occupied_units = ceil(
-        persons / 2
-    )
-  booking_price = 175 * occupied_units
+  amount = 499
+  if persons <= 2:
+    return amount
 
-  if not partial:
-    booking_price = 350 * occupied_units
+  for person in range(3, persons + 1):
+      if person % 2 == 1:
+          # First person of the new pair
+          amount += 250
+      else:
+          # Second person completes the pair
+          amount += 100
+
+  if partial:
+    amount /= 2
   
 
-  qr_url = create_qr_base64(booking_price)
+  qr_url = create_qr_base64(amount)
 
   return {
       "payment_qr_url": qr_url,
-      "amount": booking_price
+      "amount": amount
   }
 
 @router.get("/divya-drishti/groupbooking")
