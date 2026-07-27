@@ -576,17 +576,21 @@ def end_session(db: Session, booking_id: int) -> DarshanSession:
     if assignment:
         assignment.status = "completed"
         assignment.completed_at = datetime.now(ZoneInfo("Asia/Kolkata"))
-        assignment.base_amount = 500      # Your fixed session fee
-        assignment.travel_amount = 0       # Calculate later
-        assignment.extension_amount = (
-            assignment.extension_minutes * 5
-        )
-        assignment.deductions = 0
+        assignment.base_amount = 350
+
+        # DON'T reset travel amount
+        assignment.travel_amount = assignment.travel_amount or 0
+
+        # Keep extension amount
+        assignment.extension_amount = assignment.extension_amount or 0
+
+        assignment.deductions = assignment.deductions or 0
+
         assignment.net_amount = (
-            assignment.base_amount
-            + assignment.travel_amount
-            + assignment.extension_amount
-            - assignment.deductions
+            float(assignment.base_amount)
+            + float(assignment.travel_amount)
+            + float(assignment.extension_amount)
+            - float(assignment.deductions)
         )
         # config = get_rate_config(db)
         # recalculate_assignment(assignment, config)
@@ -752,7 +756,7 @@ def extend_session(
         "booking_id": booking.id,
         "participant_name": participant.full_name,
         "extension_minutes": 30,
-        "extension_amount": 499,
+        "extension_amount": 350,
         "is_extension": participant.is_extension
     }
 def check_extension(
