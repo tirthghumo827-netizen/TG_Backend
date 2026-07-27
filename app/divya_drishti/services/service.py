@@ -355,9 +355,11 @@ def approve_booking(
     if not booking:
         raise HTTPException(status_code=404, detail=f"Booking {booking_id} not found")
 
-    if booking.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Only pending bookings can be approved. Current: {booking.status}")
-
+    if booking.status == "rejected":
+        raise HTTPException(
+            status_code=400,
+            detail="Rejected bookings cannot be assigned."
+        )
     # Generate QR code in memory (no local file)
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
     qr.add_data(f"divya_drishti_booking_{booking_id}")
