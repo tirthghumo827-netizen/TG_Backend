@@ -483,7 +483,7 @@ async def generate_divya_drishti_qr(
   occupied_units = ceil(
         persons / 2
     )
-  booking_price = 250 * occupied_units 
+  booking_price = 175 * occupied_units 
   
 
   qr_url = create_qr_base64(booking_price)
@@ -502,10 +502,10 @@ async def generate_divya_drishti_qr(
   occupied_units = ceil(
         persons / 2
     )
-  booking_price = 249 * occupied_units
+  booking_price = 175 * occupied_units
 
   if not partial:
-    booking_price = 499 * occupied_units
+    booking_price = 350 * occupied_units
   
 
   qr_url = create_qr_base64(booking_price)
