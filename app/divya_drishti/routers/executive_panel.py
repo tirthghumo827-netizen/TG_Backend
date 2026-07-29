@@ -22,6 +22,7 @@ from ..executive_schema import (
     PayoutResponse,
     RatingReviewResponse,
     SessionAssignmentResponse,
+    PayoutSummaryResponse
 )
 from ..models import (
     DarshanBooking,
@@ -411,14 +412,44 @@ def get_dashboard(executive_id: int = Query(...), db: Session = Depends(get_db))
     )
 
 
-@router.get("/payouts", response_model=list[PayoutResponse])
-def get_payouts(executive_id: int = Query(...), db: Session = Depends(get_db)):
+@router.get("/payouts", response_model=PayoutSummaryResponse)
+def get_payouts(
+    executive_id: int = Query(...),
+    db: Session = Depends(get_db)
+):
     get_executive(db, executive_id)
-    return db.query(SaarthiPayout).filter(
-        SaarthiPayout.executive_id == executive_id
-    ).order_by(SaarthiPayout.period_start.desc()).all()
 
+    total_due = (
+        db.query(func.coalesce(func.sum(SaarthiSessionAssignment.net_amount), 0))
+        .filter(
+            SaarthiSessionAssignment.executive_id == executive_id,
+            SaarthiSessionAssignment.status == "completed"
+        )
+        .scalar()
+    )
 
+    total_paid = (
+        db.query(func.coalesce(func.sum(SaarthiPayout.total_paid), 0))
+        .filter(
+            SaarthiPayout.executive_id == executive_id,
+            SaarthiPayout.status == "paid"
+        )
+        .scalar()
+    )
+
+    payouts = (
+        db.query(SaarthiPayout)
+        .filter(SaarthiPayout.executive_id == executive_id)
+        .order_by(SaarthiPayout.period_start.desc())
+        .all()
+    )
+
+    return {
+        "total_due": float(total_due),
+        "total_paid": float(total_paid),
+        "pending_amount": float(total_due) - float(total_paid),
+        "payouts": payouts
+    }
 
 
 

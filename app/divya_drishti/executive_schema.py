@@ -132,3 +132,8 @@ class PayoutResponse(BaseModel):
 
 class BookingApprovalRequest(BaseModel):
     executive_id: int
+class PayoutSummaryResponse(BaseModel):
+    total_due: float
+    total_paid: float
+    pending_amount: float
+    payouts: list[PayoutResponse]
