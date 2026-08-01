@@ -508,8 +508,8 @@ async def generate_divya_drishti_qr(
   db: Session = Depends(get_db)
 ):
   amount = 499
-  if persons <= 2:
-    return amount
+  # if persons <= 2:
+  #   return amount
 
   for person in range(3, persons + 1):
       if person % 2 == 1:
