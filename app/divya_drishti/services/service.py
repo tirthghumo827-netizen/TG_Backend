@@ -17,7 +17,72 @@ import io
 from app.utils.supabase_uploads import upload_to_supabase_bytes
 from app.utils.whatsapp.divya_drishti import send_whatsapp_message
 from math import ceil
-from ..slots import WEEKDAY_SLOTS , WEEKEND_SLOTS
+from ..slots import WEEKDAY_SLOTS , WEEKEND_SLOTS , get_day_level_slots
+
+
+# def get_available_slots(
+#     db: Session,
+#     selected_date: date
+# ):
+
+#     slots = (
+#         WEEKEND_SLOTS
+#         if selected_date.weekday() >= 5
+#         else WEEKDAY_SLOTS
+#     )
+
+#     bookings = db.query(
+#         DarshanBooking
+#     ).filter(
+#         DarshanBooking.slot_date == selected_date,
+#         DarshanBooking.status != "rejected"
+#     ).all()
+
+#     result = []
+
+#     for slot in slots:
+
+#         slot_start = datetime.combine(
+#             selected_date,
+#             datetime.strptime(
+#                 slot,
+#                 "%H:%M"
+#             ).time()
+#         )
+
+#         slot_end = slot_start + timedelta(
+#             minutes=30
+#         )
+
+#         available = True
+
+#         for booking in bookings:
+
+#             if (
+#                 booking.start_datetime is None
+#                 or
+#                 booking.end_datetime is None
+#             ):
+#                 continue
+
+#             overlap = (
+#                 slot_start < booking.end_datetime
+#                 and
+#                 slot_end > booking.start_datetime
+#             )
+
+#             if overlap:
+#                 available = False
+#                 break
+
+#         result.append({
+#             "slot_time": slot,
+#             "available": available
+#         })
+
+#     return result
+
+
 
 
 def get_available_slots(
@@ -25,11 +90,17 @@ def get_available_slots(
     selected_date: date
 ):
 
-    slots = (
+    base_slots = (
         WEEKEND_SLOTS
         if selected_date.weekday() >= 5
         else WEEKDAY_SLOTS
     )
+
+    # NEW: narrow down to slots at least one executive can actually cover
+    slots = get_day_level_slots(selected_date)
+
+    if not slots:
+        return []
 
     bookings = db.query(
         DarshanBooking
