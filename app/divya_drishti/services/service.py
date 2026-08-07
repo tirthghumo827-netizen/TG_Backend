@@ -94,7 +94,7 @@ def get_available_slots(
         WEEKEND_SLOTS
         if selected_date.weekday() >= 5
         else WEEKDAY_SLOTS
-    )
+    ) 
 
     # NEW: narrow down to slots at least one executive can actually cover
     slots = get_day_level_slots(selected_date)
