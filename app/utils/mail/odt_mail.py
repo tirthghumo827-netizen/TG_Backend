@@ -63,11 +63,11 @@ def send_booking_email(
 
     # --- Links --- 
     approve_link = (
-    f"https://web-production-b9395.up.railway.app{config['approve_route']}?booking_id={booking_id}"
+    f"https://web-production-edeea.up.railway.app{config['approve_route']}?booking_id={booking_id}"
     )
 
     decline_link = (
-        f"https://web-production-b9395.up.railway.app{config['decline_route']}?booking_id={booking_id}"
+        f"https://web-production-edeea.up.railway.app{config['decline_route']}?booking_id={booking_id}"
     )
 
     received_at = datetime.now().strftime("%d %b %Y · %I:%M %p")
