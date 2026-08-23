@@ -400,6 +400,22 @@ def get_price_per_person_chota_pachmarhi_qr(total_people: int , meal_preference 
           return 999
       else:
           return 965
+def get_price_per_person_ujjain_qr(total_people: int , meal_preference : str):
+    
+  if meal_preference == "true":
+      if total_people == 1:
+          return 5599
+      elif total_people <= 3:
+          return 5399
+      else:   
+          return 5199
+  else:
+      if total_people  == 1:
+          return 4799
+      elif total_people <= 3:
+          return 4599
+      else:
+          return 4399
 
 @router.get("/odt/qr")
 async def generate_odt_qr(
@@ -438,6 +454,19 @@ async def generate_odt_qr(
 
     # if is_coupon_applied:
     #     amount = amount - 100
+
+  qr_url = create_qr_base64(amount)
+  print("AMOUNT:", amount)
+  return {
+      "payment_qr_url": qr_url,
+      "amount": amount
+  } 
+@router.get("/ujjain/qr")
+async def generate_odt_qr(
+  number_of_people: int,
+  meal_preference:str
+):
+  amount = get_price_per_person_ujjain_qr(number_of_people , meal_preference) * number_of_people
 
   qr_url = create_qr_base64(amount)
   print("AMOUNT:", amount)
