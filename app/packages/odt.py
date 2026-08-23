@@ -570,6 +570,6 @@ def decline_chota_booking(
         booking_id,
         background_tasks,
         db,
-        models.ChotaPachmarhi,
+        models.UjjainOmkareshwarTrip,
     )
 
