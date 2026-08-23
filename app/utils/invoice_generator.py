@@ -6,6 +6,7 @@ import os
 import json
 from app.utils.pricing.pachmarhi import get_price_per_person
 
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.abspath(os.path.join(BASE_DIR, "../public/invoice_template.jpg"))
 

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import engine , get_db
 from app.config import settings  
 from app.utils.mail.odt_mail import send_booking_email , send_email_with_invoice , send_booking_declined_email 
+from app.utils.mail.ujjain_omkareshwar import ujjain_approval_email , ujjain_declined_email
 import shutil, os
 from fastapi import BackgroundTasks
 from app.utils.invoice_generator import generate_invoice
@@ -44,7 +45,7 @@ UJJAIN_CONFIG = {
     "booking_model": models.UjjainOmkareshwarTrip,
     "traveller_model": models.UjjainOmkareshwarTraveller,
     "pricing_function": get_price_per_person_ujjain,  # Assuming same pricing function for Ujjain
-    "base_price": 999,
+    "base_price": 5599,
     "approve_route": "/ujjain/approve",
     "decline_route": "/ujjain/decline",
 }
@@ -151,7 +152,7 @@ def approve_booking_helper(
     db.refresh(booking)
 
     background_tasks.add_task(
-        send_email_with_invoice,
+        ujjain_approval_email,
         booking.primary_email,
         booking,
         invoice_path,
@@ -193,7 +194,7 @@ def decline_booking_helper(
     db.commit()
 
     background_tasks.add_task(
-        send_booking_declined_email,
+        ujjain_declined_email,
         booking,
         booking.primary_email,
     )
@@ -332,6 +333,7 @@ ODT_WHATSAPP_GROUPS = {
     # "2026-08-22": "https://chat.whatsapp.com/HIwU7EwT5iyAkQhX73ZP81?s=cl&p=i&mlu=0&ilr=0" , # Halali Trek
     "2026-09-05" : "https://chat.whatsapp.com/G9cEuK3Vb9b4KtizF2TbVu?s=sw&p=a&ilr=4", # Halali Batch 2 
     "2026-09-12" : "https://chat.whatsapp.com/FyqDe4aK99TGxhhgbd9pMX?s=sw&p=a&ilr=4", # Ujjain Batch 1 
+    "2026-09-26" : "https://chat.whatsapp.com/LUSThbpdQ9D5kdnchJ5gEv?s=sw&p=a&ilr=4", # Ujjain Batch 2
     # add more trek dates here as needed
 }
 
@@ -464,18 +466,18 @@ def _build_odt_whatsapp_message(booking) -> str:
     print(f"DEBUG trek_date value: {repr(booking.trek_date)}")
     group_link = _get_whatsapp_group_link(booking.trek_date)
     return f"""
-Thank you {booking.primary_traveller_name} Ji for registering for the One Day Trek ! 
+Thank you {booking.primary_traveller_name} Ji for registering for Trip ! 
 
 Your registration is successful.  
 
-Please check your email for the confirmation and trek details  . 
+Please check your email for the confirmation and trip details  . 
 
 Join the official WhatsApp group using the link below:
 {group_link}
 
-Make sure you have raised the request to join the official WhatsApp group as all updates, packing lists, and important info will be shared there before the trek .
+Make sure you have raised the request to join the official WhatsApp group as all updates, packing lists, and important info will be shared there before the trip .
 
-See you on the trek ! 
+See you on the trip ! 
 
 Team TirthGhumo
 """.strip()
