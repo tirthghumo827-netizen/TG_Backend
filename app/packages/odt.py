@@ -45,8 +45,8 @@ UJJAIN_CONFIG = {
     "traveller_model": models.UjjainOmkareshwarTraveller,
     "pricing_function": get_price_per_person_ujjain,  # Assuming same pricing function for Ujjain
     "base_price": 999,
-    "approve_route": "/odt/ujjain/approve",
-    "decline_route": "/odt/ujjain/decline",
+    "approve_route": "/ujjain/approve",
+    "decline_route": "/ujjain/decline",
 }
 
 def create_odt_booking(
