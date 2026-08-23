@@ -11,7 +11,7 @@ import shutil, os
 from fastapi import BackgroundTasks
 from app.utils.invoice_generator import generate_invoice
 from app.utils.supabase_uploads import upload_to_supabase
-from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali
+from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali , get_price_per_person_ujjain
 from fastapi.responses import HTMLResponse
 
 from urllib.parse import quote
@@ -38,6 +38,15 @@ HALALI_CONFIG = {
     "base_price": 1199,
     "approve_route": "/odt/halali/approve",
     "decline_route": "/odt/halali/decline",
+}
+UJJAIN_CONFIG = {
+    "name": "Ujjain Omkareshwar Trip",
+    "booking_model": models.UjjainOmkareshwarTrip,
+    "traveller_model": models.UjjainOmkareshwarTraveller,
+    "pricing_function": get_price_per_person_ujjain,  # Assuming same pricing function for Ujjain
+    "base_price": 999,
+    "approve_route": "/odt/ujjain/approve",
+    "decline_route": "/odt/ujjain/decline",
 }
 
 def create_odt_booking(
@@ -276,6 +285,45 @@ async def odt_booking(
         "total_people": total_people,
         "total_price": total_price,
     }
+@router.post("/ujjain_omkareshwar", status_code=status.HTTP_201_CREATED)
+async def odt_booking(
+    background_tasks: BackgroundTasks,
+    travellers: str = Form(...),   # JSON string array
+    meal_preference: str = Form(...),
+    trek_date: str = Form(...) ,
+    agree: bool = Form(...),
+    payment_screenshot: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    # Parse travellers JSON
+    
+    travellers_list = json.loads(travellers)
+    
+    booking, file_location, total_people, total_price = create_odt_booking(
+    db=db,
+    travellers_list=travellers_list,
+    meal_preference=meal_preference,
+    trek_date=trek_date,
+    agree=agree,
+    payment_screenshot=payment_screenshot,
+    config=UJJAIN_CONFIG
+)
+
+    background_tasks.add_task(
+        send_booking_email,
+        booking.id,
+        db,
+        UJJAIN_CONFIG,
+        file_location,
+    )
+
+    return {
+        "message": "Booking successful",
+        "booking_id": booking.id,
+        "total_people": total_people,
+        "total_price": total_price,
+    }
+
 
 
 ODT_WHATSAPP_GROUPS = {
@@ -455,6 +503,18 @@ def approve_chota_booking(
         db,
         config=HALALI_CONFIG
     )
+@router.get("/ujjain/approve")
+def approve_chota_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    return approve_booking_helper(
+        booking_id,
+        background_tasks,
+        db,
+        config=UJJAIN_CONFIG
+    )
 
 @router.get("/odt/budhni/decline")
 def decline_booking(
@@ -480,3 +540,16 @@ def decline_chota_booking(
         db,
         models.ChotaPachmarhi,
     )
+@router.get("/ujjain/decline")
+def decline_chota_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    return decline_booking_helper(
+        booking_id,
+        background_tasks,
+        db,
+        models.ChotaPachmarhi,
+    )
+
