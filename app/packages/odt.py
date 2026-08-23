@@ -30,6 +30,8 @@ BUDHNI_CONFIG = {
     "base_price": 1351,
     "approve_route": "/odt/budhni/approve",
     "decline_route": "/odt/budhni/decline",
+    "approval_mail" : "send_email_with_invoice",
+    "decline_mail" : "send_booking_declined_email"
 }
 HALALI_CONFIG = {
     "name": "Halali Trek",
@@ -39,6 +41,8 @@ HALALI_CONFIG = {
     "base_price": 1199,
     "approve_route": "/odt/halali/approve",
     "decline_route": "/odt/halali/decline",
+    "approval_mail" : "send_email_with_invoice",
+    "decline_mail" : "send_booking_declined_email"
 }
 UJJAIN_CONFIG = {
     "name": "Ujjain Omkareshwar Trip",
@@ -48,6 +52,8 @@ UJJAIN_CONFIG = {
     "base_price": 5599,
     "approve_route": "/ujjain/approve",
     "decline_route": "/ujjain/decline",
+    "approval_mail" : "ujjain_approval_email",
+    "decline_mail" : "ujjain_declined_email"
 }
 
 def create_odt_booking(
@@ -141,6 +147,11 @@ def approve_booking_helper(
     if not booking:
         raise HTTPException(404, "Booking not found")
 
+    if booking.status != "pending":
+        raise HTTPException(
+            400,
+            f"Booking status is '{booking.status}', cannot approve."
+        )
     invoice_path = generate_invoice(
         booking,
         config
@@ -152,7 +163,7 @@ def approve_booking_helper(
     db.refresh(booking)
 
     background_tasks.add_task(
-        ujjain_approval_email,
+        config["approval_mail"],
         booking.primary_email,
         booking,
         invoice_path,
@@ -189,12 +200,17 @@ def decline_booking_helper(
     if not booking:
         raise HTTPException(404, "Booking not found")
 
+    if booking.status != "pending":
+        raise HTTPException(
+            400,
+            f"Booking status is '{booking.status}', cannot decline."
+        )
     booking.status = "declined"
 
     db.commit()
 
     background_tasks.add_task(
-        ujjain_declined_email,
+        config["decline_mail"],
         booking,
         booking.primary_email,
     )
