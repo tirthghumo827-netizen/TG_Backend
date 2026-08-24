@@ -112,10 +112,11 @@ def generate_ujjain_invoice(
     
     price_per_person = pricing_function(quantity, meal_preference)
     amount = quantity * price_per_person
-    toatl_without_discount = amount
+    total_without_discount = amount
+    discount = total_without_discount - amount
     if data.payment_status == "partial":
         amount = amount * 0.4
-    discount = total_without_discount - amount
+    
     
     file_name = f"invoice_{uuid.uuid4().hex[:8]}.pdf"
     invoices_folder = os.path.abspath(os.path.join(BASE_DIR, "../invoices"))
