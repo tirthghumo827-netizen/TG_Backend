@@ -157,7 +157,7 @@ def generate_ujjain_invoice(
     # PAYMENT DETAILS
     c.drawString(75 * mm, 76 * mm, "UPI")
     c.drawString(75 * mm, 66 * mm, str(amount))
-    c.drawString(75 * mm, 54 * mm, str(toatl_without_discount - amount))
+    c.drawString(75 * mm, 54 * mm, str(total_without_discount - amount))
     # else:
     #     c.drawString(145 * mm, 142 * mm,str(amount))
     #     c.drawString(173 * mm, 142 * mm, str(amount))
