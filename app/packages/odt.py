@@ -10,7 +10,7 @@ from app.utils.mail.odt_mail import send_booking_email , send_email_with_invoice
 from app.utils.mail.ujjain_omkareshwar import ujjain_approval_email , ujjain_declined_email
 import shutil, os
 from fastapi import BackgroundTasks
-from app.utils.invoice_generator import generate_invoice
+from app.utils.invoice_generator import generate_invoice , generate_ujjain_invoice
 from app.utils.supabase_uploads import upload_to_supabase
 from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali , get_price_per_person_ujjain
 from fastapi.responses import HTMLResponse
@@ -30,8 +30,8 @@ BUDHNI_CONFIG = {
     "base_price": 1351,
     "approve_route": "/odt/budhni/approve",
     "decline_route": "/odt/budhni/decline",
-    "approval_mail" : "send_email_with_invoice",
-    "decline_mail" : "send_booking_declined_email"
+    "approval_mail" : send_email_with_invoice,
+    "decline_mail" : send_booking_declined_email
 }
 HALALI_CONFIG = {
     "name": "Halali Trek",
@@ -41,8 +41,8 @@ HALALI_CONFIG = {
     "base_price": 1199,
     "approve_route": "/odt/halali/approve",
     "decline_route": "/odt/halali/decline",
-    "approval_mail" : "send_email_with_invoice",
-    "decline_mail" : "send_booking_declined_email"
+    "approval_mail" : send_email_with_invoice,
+    "decline_mail" : send_booking_declined_email
 }
 UJJAIN_CONFIG = {
     "name": "Ujjain Omkareshwar Trip",
@@ -52,8 +52,8 @@ UJJAIN_CONFIG = {
     "base_price": 5599,
     "approve_route": "/ujjain/approve",
     "decline_route": "/ujjain/decline",
-    "approval_mail" : "ujjain_approval_email",
-    "decline_mail" : "ujjain_declined_email"
+    "approval_mail" : ujjain_approval_email,
+    "decline_mail" : ujjain_declined_email
 }
 
 def create_odt_booking(
@@ -239,7 +239,7 @@ def approve_booking_helper(
             400,
             f"Booking status is '{booking.status}', cannot approve."
         )
-    invoice_path = generate_invoice(
+    invoice_path = generate_ujjain_invoice(
         booking,
         config
     )
@@ -635,7 +635,7 @@ def decline_booking(
         booking_id,
         background_tasks,
         db,
-        models.ODT1,
+        config=BUDHNI_CONFIG,
     )
 @router.get("/odt/halali/decline")
 def decline_chota_booking(
@@ -647,7 +647,7 @@ def decline_chota_booking(
         booking_id,
         background_tasks,
         db,
-        models.ChotaPachmarhi,
+        config=HALALI_CONFIG,
     )
 @router.get("/ujjain/decline")
 def decline_chota_booking(
@@ -659,6 +659,6 @@ def decline_chota_booking(
         booking_id,
         background_tasks,
         db,
-        models.UjjainOmkareshwarTrip,
+        config=UJJAIN_CONFIG,
     )
 
