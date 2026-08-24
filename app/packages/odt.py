@@ -239,10 +239,16 @@ def approve_booking_helper(
             400,
             f"Booking status is '{booking.status}', cannot approve."
         )
-    invoice_path = generate_ujjain_invoice(
-        booking,
-        config
-    )
+    if config["name"] == "Ujjain Omkareshwar Trip":
+        invoice_path = generate_ujjain_invoice(
+            booking,
+            config
+        )
+    else:
+        invoice_path = generate_invoice(
+            booking,
+            config
+        )
 
     booking.status = "approved"
 
