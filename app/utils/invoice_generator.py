@@ -98,7 +98,7 @@ def generate_invoice(
     
 ## Ujjain Invoice Generation Function
 
-def generate_invoice(
+def generate_ujjain_invoice(
     data,
     config,
 ):
