@@ -85,6 +85,7 @@ def create_odt_booking(
             detail="Invalid group size"
         )
 
+
     file_location = None
 
     if payment_screenshot:
@@ -133,6 +134,92 @@ def create_odt_booking(
     db.commit()
 
     return booking, file_location, total_people, total_price
+
+## Ujjain booking helper function 
+def create_ujjain_booking(
+    *,
+    db: Session,
+    travellers_list: list,
+    meal_preference: str,
+    trek_date: str,
+    payment_status: str,
+    agree: bool,
+    payment_screenshot: UploadFile,
+    config: dict,
+):
+    total_people = len(travellers_list)
+    model = config["booking_model"]
+    pricing_function = config["pricing_function"]
+    traveller_model = config["traveller_model"]
+    if total_people == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one traveller required"
+        )
+
+    price_per_person = pricing_function(total_people, meal_preference )
+    total_price = price_per_person * total_people
+
+    if not total_price:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid group size"
+        )
+    if payment_status == "partial" :
+        total_price = total_price  * 0.4 
+    else :
+        payment_status = "full"
+
+    file_location = None
+
+    if payment_screenshot:
+        unique_id = uuid.uuid4().hex
+        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
+        file_location = os.path.join(UPLOAD_DIR, file_name)
+
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(payment_screenshot.file, buffer)
+
+    booking = model(
+        primary_email=travellers_list[0]["email_address"],
+        primary_traveller_name=travellers_list[0]["full_name"],
+        primary_traveller_contact=travellers_list[0]["contact_number"],
+        total_people=total_people,
+        total_price=total_price,
+        meal_preference=meal_preference,
+        trek_date=trek_date,
+        payment_status=payment_status,
+        agree=agree,
+        payment_screenshot=file_location,
+        status="pending"
+    )
+
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+
+    for traveller in travellers_list:
+        db.add(
+            traveller_model(
+                booking_id=booking.id,
+                full_name=traveller["full_name"],
+                email_address=traveller["email_address"],
+                age=traveller["age"],
+                gender=traveller["gender"],
+                contact_number=traveller["contact_number"],
+                whatsapp_number=traveller["whatsapp_number"],
+                college_name=traveller["college_name"],
+                pick_up_loc=traveller["pick_up_loc"],
+                drop_loc=traveller["drop_loc"],
+                trip_exp_level=traveller.get("trip_exp_level"),
+                medical_details=traveller.get("medical_details"),
+            )
+        )
+
+    db.commit()
+
+    return booking, file_location, total_people, total_price
+
 
 def approve_booking_helper(
     booking_id: int,
@@ -308,6 +395,7 @@ async def odt_booking(
     travellers: str = Form(...),   # JSON string array
     meal_preference: str = Form(...),
     trek_date: str = Form(...) ,
+    payment_status: str = Form(...),
     agree: bool = Form(...),
     payment_screenshot: UploadFile = File(...),
     db: Session = Depends(get_db)
@@ -316,12 +404,13 @@ async def odt_booking(
     
     travellers_list = json.loads(travellers)
     
-    booking, file_location, total_people, total_price = create_odt_booking(
+    booking, file_location, total_people, total_price = create_ujjain_booking(
     db=db,
     travellers_list=travellers_list,
     meal_preference=meal_preference,
     trek_date=trek_date,
     agree=agree,
+    payment_status=payment_status,
     payment_screenshot=payment_screenshot,
     config=UJJAIN_CONFIG
 )

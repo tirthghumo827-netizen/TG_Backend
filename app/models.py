@@ -148,6 +148,7 @@ class UjjainOmkareshwarTrip(Base):
     meal_preference = Column(String(30), nullable=False)
     trek_date = Column(Date, nullable=False)
     status = Column(String(20), default="pending")
+    payment_status = Column(String(20), default="partial")
     payment_screenshot = Column(String(255), nullable=False)
     agree = Column(Boolean, default=False)
     submitted_at = Column(
