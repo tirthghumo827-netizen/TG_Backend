@@ -17,7 +17,7 @@ base_url = settings.base_url
 async def ujjain_declined_email(data , email):
     try:
         text_body = f"""
-        Hello,
+        Hello, 
 
 Thank you for choosing TirthGhumo for your Trip.
 We wanted to let you know that we've reviewed your recent booking attempt.
