@@ -2,7 +2,7 @@ from sqlalchemy import  Column , Integer , String , Boolean, Text , ForeignKey  
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from .database import Base
-from datetime  import date , datetime 
+from datetime  import date , datetime , timezone
 from sqlalchemy.dialects.postgresql import JSON
 
 
@@ -183,6 +183,54 @@ class UjjainOmkareshwarTraveller(Base):
 
     trip_exp_level = Column(String(40))
     medical_details = Column(String(100))
+
+class HeritageTrip(Base):
+    __tablename__ = "heritage_trip"
+
+    id = Column(Integer, primary_key=True, index=True)
+    primary_email = Column(String(100), nullable=False)
+    primary_traveller_name = Column(String(100), nullable=False)
+    primary_traveller_contact = Column(String(12), nullable=False)
+    total_people = Column(Integer, nullable=False)
+    total_price = Column(Integer, nullable=False)
+    meal_preference = Column(String(30), nullable=False)
+    trek_date = Column(Date, nullable=False)
+    status = Column(String(20), default="pending")
+    payment_screenshot = Column(String(255), nullable=False)
+    agree = Column(Boolean, default=False)
+    submitted_at = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()")
+    )
+class HeritageTraveller(Base):
+    __tablename__ = "heritage_travellers"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    booking_id = Column(
+        Integer,
+        ForeignKey("heritage_trip.id"),
+        nullable=False
+    )
+
+    full_name = Column(String(100), nullable=False)
+    email_address = Column(String(100), nullable=False)
+
+    age = Column(Integer, nullable=False)
+    gender = Column(String(20), nullable=False)
+
+    pick_up_loc = Column(String(50), nullable=False)
+    drop_loc = Column(String(50), nullable=False)
+
+    contact_number = Column(String(12), nullable=False)
+    whatsapp_number = Column(String(12), nullable=False)
+
+    college_name = Column(String(200), nullable=False)
+
+    trip_exp_level = Column(String(40))
+    medical_details = Column(String(100))
+
 class Pachmarhi(Base):
     __tablename__="pachmarhi"
 
@@ -651,5 +699,46 @@ class Notification(Base):
 
     user = relationship("User", backref="notifications")
 
+class Coupon(Base):
+    __tablename__ = "coupons"
 
+    id = Column(Integer, primary_key=True, index=True)
+    coupon_code = Column(
+        String(50),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    coupon_type = Column(String(30), nullable=False)
+    user_email = Column(String(255), nullable=True, index=True)
+    discount_amount = Column(Integer, default=100, nullable=False)
+    applicable_on = Column(String(20), nullable=False)
+    is_redeemed = Column(Boolean, default=False, nullable=False)
+    redeemed_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
+class CouponRedemption(Base):
+    __tablename__ = "coupon_redemptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String(255), nullable=False, index=True)
+    coupon_code = Column(String(50), nullable=False)
+    coupon_type = Column(String(30), nullable=False)
+    booking_id = Column(String(100), nullable=False)
+    redeemed_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email",
+            "coupon_type",
+            name="uq_user_coupon_type",
+        ),
+    )

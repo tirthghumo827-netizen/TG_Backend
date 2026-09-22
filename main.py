@@ -8,7 +8,7 @@ from app.config import settings
 from app.packages import manali , tamia , rishikesh , saarthi , odt , enquiry , hiring , vr_darshan , vr_admin_action , bhajan_jamming , pachmarhi
 from app.divya_drishti.routers import divya_drishti
 from app.divya_drishti.routers import executive_panel
-from app.routers import auth, user_panel
+from app.routers import auth, user_panel , coupons
 from app.utils import qr
 import shutil, os
 from fastapi import BackgroundTasks
@@ -55,6 +55,7 @@ app.include_router(user_panel.router)
 # app.include_router(pachmarhi.router)
 app.include_router(divya_drishti.router)
 app.include_router(executive_panel.router)
+app.include_router(coupons.router)
 # app.include_router(odt_coupon.router)
 
 

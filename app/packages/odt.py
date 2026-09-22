@@ -12,11 +12,19 @@ import shutil, os
 from fastapi import BackgroundTasks
 from app.utils.invoice_generator import generate_invoice , generate_ujjain_invoice
 from app.utils.supabase_uploads import upload_to_supabase
-from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali , get_price_per_person_ujjain
+from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali , get_price_per_person_ujjain , get_price_per_person_heritage
 from fastapi.responses import HTMLResponse
+from app.services.heritage_coupon_service import (
+    get_or_create_heritage_trek_coupon
+)
 
+from app.utils.mail.odt_mail import (
+    send_heritage_trek_coupon_email
+)
 from urllib.parse import quote
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 UPLOAD_DIR = "uploads/"
@@ -54,6 +62,18 @@ UJJAIN_CONFIG = {
     "decline_route": "/ujjain/decline",
     "approval_mail" : ujjain_approval_email,
     "decline_mail" : ujjain_declined_email
+}
+HERITAGE_CONFIG = { # One Day Heritage Trip Configurations
+    "name": "Heritage Trip",
+    "booking_model": models.HeritageTrip,
+    "traveller_model": models.HeritageTraveller,
+    "pricing_function": get_price_per_person_heritage,  # Assuming same pricing function for Heritage
+    "base_price": 999, 
+    "approve_route": "/heritage/approve",
+    "decline_route": "/heritage/decline",
+    "approval_mail" : send_email_with_invoice,
+    "decline_mail" : send_booking_declined_email
+    
 }
 
 def create_odt_booking(
@@ -436,6 +456,45 @@ async def odt_booking(
         "total_price": total_price,
     }
 
+@router.post("/heritage_booking", status_code=status.HTTP_201_CREATED)
+async def odt_booking(
+    background_tasks: BackgroundTasks,
+    travellers: str = Form(...),   # JSON string array
+    meal_preference: str = Form(...),
+    trek_date: str = Form(...) ,
+    agree: bool = Form(...),
+    payment_screenshot: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    # Parse travellers JSON
+    
+    travellers_list = json.loads(travellers)
+    
+    booking, file_location, total_people, total_price = create_odt_booking(
+    db=db,
+    travellers_list=travellers_list,
+    meal_preference=meal_preference,
+    trek_date=trek_date,
+    agree=agree,
+    payment_screenshot=payment_screenshot,
+    config=HERITAGE_CONFIG
+    )
+
+    background_tasks.add_task(
+        send_booking_email,
+        booking.id,
+        db,
+        HERITAGE_CONFIG,
+        file_location,
+    )
+
+    return {
+        "message": "Booking successful",
+        "booking_id": booking.id,
+        "total_people": total_people,
+        "total_price": total_price,
+    }
+
 
 
 ODT_WHATSAPP_GROUPS = {
@@ -445,6 +504,7 @@ ODT_WHATSAPP_GROUPS = {
     "2026-09-05" : "https://chat.whatsapp.com/G9cEuK3Vb9b4KtizF2TbVu?s=sw&p=a&ilr=4", # Halali Batch 2 
     "2026-09-19" : "https://chat.whatsapp.com/FyqDe4aK99TGxhhgbd9pMX?s=sw&p=a&ilr=4", # Ujjain Batch 1 
     "2026-09-26" : "https://chat.whatsapp.com/LUSThbpdQ9D5kdnchJ5gEv?s=sw&p=a&ilr=4", # Ujjain Batch 2
+    "2026-10-04" : "https://chat.whatsapp.com/BMaYQX8lefZJ5EMKttOjTC?s=cl&p=i&mlu=4&ilr=4", # One day heritage trip  1
     # add more trek dates here as needed
 }
 
@@ -630,6 +690,18 @@ def approve_chota_booking(
         db,
         config=UJJAIN_CONFIG
     )
+# @router.get("/heritage/approve")
+# def approve_booking(
+#     booking_id: int,
+#     background_tasks: BackgroundTasks,
+#     db: Session = Depends(get_db),
+# ):
+#     return approve_booking_helper(
+#         booking_id,
+#         background_tasks,
+#         db,
+#         config=HERITAGE_CONFIG
+#     )
 
 @router.get("/odt/budhni/decline")
 def decline_booking(
@@ -667,4 +739,160 @@ def decline_chota_booking(
         db,
         config=UJJAIN_CONFIG,
     )
+# @router.get("/heritage/decline")
+# def decline_booking(
+#     booking_id: int,
+#     background_tasks: BackgroundTasks,
+#     db: Session = Depends(get_db),
+# ):
+#     return decline_booking_helper(
+#         booking_id,
+#         background_tasks,
+#         db,
+#         config=HERIATGE_CONFIG,
+#     )
 
+# ================= HERITAGE APPROVAL ROUTE =================
+
+@router.get("/heritage/approve")
+def approve_heritage_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    # Fetch Heritage booking
+    booking = (
+        db.query(models.HeritageTrip)
+        .filter(models.HeritageTrip.id == booking_id)
+        .first()
+    )
+
+    if not booking:
+        raise HTTPException(
+            status_code=404,
+            detail="Heritage booking not found",
+        )
+
+    if booking.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Booking status is '{booking.status}', cannot approve.",
+        )
+
+    try:
+        # Generate invoice
+        invoice_path = generate_invoice(booking, HERITAGE_CONFIG)
+
+        # Approve booking
+        booking.status = "approved"
+
+        # Generate or retrieve Heritage → Trek coupon
+        coupon, coupon_created = get_or_create_heritage_trek_coupon(
+            db=db,
+            email=booking.primary_email,
+            heritage_booking_id=booking.id,
+        )
+
+        # Save approval changes
+        db.commit()
+        db.refresh(booking)
+
+    except Exception:
+        db.rollback()
+
+        # Print the actual error in the FastAPI terminal
+        logger.exception(
+            "Heritage approval failed for booking ID %s",
+            booking_id,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not approve Heritage booking.",
+        )
+
+    # Existing approval email with invoice
+    background_tasks.add_task(
+        HERITAGE_CONFIG["approval_mail"],
+        booking.primary_email,
+        booking,
+        invoice_path,
+    )
+
+    # Send coupon email only if a new coupon was created
+    if coupon_created:
+        background_tasks.add_task(
+            send_heritage_trek_coupon_email,
+            booking.primary_email,
+            coupon.coupon_code,
+            coupon.expires_at,
+        )
+
+    # WhatsApp link
+    whatsapp_message = _build_odt_whatsapp_message(booking)
+
+    whatsapp_url = (
+        f"https://wa.me/91{booking.primary_traveller_contact}"
+        f"?text={quote(whatsapp_message, safe='', encoding='utf-8')}"
+    )
+
+    return _status_page(
+        title="Heritage Booking Approved",
+        message=(
+            f"Heritage booking <strong>#TG-{booking_id}</strong> "
+            "has been approved. Confirmation email and invoice have been "
+            "queued. Heritage → Trek coupon email has also been queued "
+            "if a new coupon was generated."
+        ),
+        color="#16a34a",
+        icon="✓",
+        whatsapp_url=whatsapp_url,
+        whatsapp_label="Send WhatsApp to Customer",
+    )
+
+
+# ================= HERITAGE DECLINE ROUTE =================
+
+@router.get("/heritage/decline")
+def decline_heritage_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    # Fetch Heritage booking
+    booking = (
+        db.query(models.HeritageTrip)
+        .filter(models.HeritageTrip.id == booking_id)
+        .first()
+    )
+
+    if not booking:
+        raise HTTPException(status_code=404, detail="Heritage booking not found")
+
+    if booking.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Booking status is '{booking.status}', cannot decline."
+        )
+
+    # Decline booking
+    booking.status = "declined"
+    db.commit()
+    db.refresh(booking)
+
+    # Send existing decline email
+    background_tasks.add_task(
+        HERITAGE_CONFIG["decline_mail"],
+        booking,
+        booking.primary_email,
+    )
+
+    return _status_page(
+        title="Heritage Booking Declined",
+        message=(
+            f"Heritage booking <strong>#TG-{booking_id}</strong> "
+            "has been declined. The customer has been notified via email."
+        ),
+        color="#dc2626",
+        icon="✕",
+    )

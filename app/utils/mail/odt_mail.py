@@ -312,7 +312,7 @@ async def send_email_with_invoice(email ,data, invoice_path):
     email_body = f"""
    Hey🌿
 
-Great news — your booking for the 1Day Adventure Trek with TirthGhumo 
+Great news — your booking for the 1Day Adventure Trip with TirthGhumo 
 is confirmed for {data.trek_date}!
 
 Your payment has been approved successfully . 
@@ -357,5 +357,56 @@ Thank you for choosing TirthGhumo — Aastha Bhi, Suvidha Bhi 🌄
         raise Exception(f"Invoice email failed: {str(e)}")
 
 
+def send_heritage_trek_coupon_email(
+    email: str,
+    coupon_code: str,
+    expires_at: datetime,
+):
+    expiry_text = expires_at.strftime("%d %B %Y")
 
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;
+                margin:auto;padding:24px;color:#222;">
+
+        <h2>Thank you for choosing TirthGhumo!</h2>
+
+        <p>
+            Thank you for registering for our
+            <strong>One Day Heritage</strong> experience.
+        </p>
+
+        <p>Here's a little gift for your next adventure!</p>
+
+        <div style="background:#fff7ed;padding:24px;
+                    text-align:center;border:2px dashed #f97316;
+                    border-radius:12px;">
+
+            <p style="font-size:14px;">YOUR EXCLUSIVE COUPON</p>
+
+            <h2 style="color:#ea580c;letter-spacing:2px;">
+                {coupon_code}
+            </h2>
+
+            <h3>₹100 OFF on One Day Trek</h3>
+
+            <p>Valid until {expiry_text}</p>
+        </div>
+
+        <p>
+            Enter this coupon code while booking your next
+            One Day Trek on TirthGhumo.
+        </p>
+
+        <p>Happy Travelling!<br><strong>Team TirthGhumo</strong></p>
+    </div>
+    """
+
+    response = resend.Emails.send({
+        "from": "TirthGhumo <no-reply@tirthghumo.in>",
+        "to": [email],
+        "subject": "Your ₹100 TirthGhumo Trek Coupon 🎉",
+        "html": html_body,
+    })
+
+    return response
 

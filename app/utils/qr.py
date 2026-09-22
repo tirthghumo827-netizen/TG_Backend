@@ -421,6 +421,12 @@ def get_price_per_person_ujjain_qr(total_people: int , meal_preference : str , p
   
   return amount
 
+def get_price_per_person_heritage(total_people: int , meal_preference : str):
+    if meal_preference == "true":
+        return 999
+    else:
+       return 799
+
 @router.get("/odt/qr")
 async def generate_odt_qr(
   number_of_people: int,
@@ -479,6 +485,19 @@ async def generate_odt_qr(
       "payment_qr_url": qr_url,
       "amount": amount
   } 
+@router.get("/heritage/qr")
+async def generate_odt_qr(
+  number_of_people: int,
+  meal_preference:str
+):
+  amount = get_price_per_person_heritage(number_of_people , meal_preference) * number_of_people
+
+  qr_url = create_qr_base64(amount)
+  print("AMOUNT:", amount)
+  return {
+      "payment_qr_url": qr_url,
+      "amount": amount
+  }
 
 @router.get("/pachmarhi/qr")
 async def generate_odt_qr(
