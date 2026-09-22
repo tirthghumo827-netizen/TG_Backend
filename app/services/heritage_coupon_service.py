@@ -11,7 +11,7 @@ from app.models import Coupon
 DISCOUNT_AMOUNT = 100
 
 HERITAGE_TREK_EXPIRY_DAYS = int(
-    os.getenv("HERITAGE_TREK_COUPON_EXPIRY_DAYS", "90")
+    os.getenv("HERITAGE_TREK_COUPON_EXPIRY_DAYS", "30")
 )
 
 
