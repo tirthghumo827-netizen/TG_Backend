@@ -57,6 +57,6 @@ def get_price_per_person_ujjain(total_people: int , meal_preference : str):
 
 def get_price_per_person_heritage(total_people: int , meal_preference : str):
     if meal_preference == "with_meal":
-        return 999
+        return 1099
     else:
-       return 769
+       return 869

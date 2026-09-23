@@ -425,9 +425,9 @@ def get_price_per_person_ujjain_qr(total_people: int , meal_preference : str , p
 
 def get_price_per_person_heritage(total_people: int , meal_preference : str):
     if meal_preference == "true":
-        return 999
+        return 1099
     else:
-       return 769
+       return 869
 
 @router.get("/odt/qr")
 async def generate_odt_qr(
