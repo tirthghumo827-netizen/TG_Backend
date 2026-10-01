@@ -367,7 +367,7 @@ def get_price_per_person_qr(total_people: int , meal_preference : str):
   if meal_preference == "true":
       return 1099
   else:
-      else 869
+      return 869
 def get_price_per_person_chota_pachmarhi_qr(total_people: int , meal_preference : str):
     
   if meal_preference == "true":
