@@ -415,63 +415,63 @@ def get_price_per_person_heritage(total_people: int , meal_preference : str):
     else:
        return 869
 
-@router.get("/odt/qr")
-async def generate_odt_qr(
-  number_of_people: int,
-  meal_preference:str,
-  coupon_code: str | None = Query(None),
-  email: str | None = Query(None),
-):
-  # print("MEAL PREF:", meal_preference)
-  original_amount = get_price_per_person_qr(number_of_people , meal_preference) * number_of_people
+# @router.get("/odt/qr")
+# async def generate_odt_qr(
+#   number_of_people: int,
+#   meal_preference:str,
+#   coupon_code: str | None = Query(None),
+#   email: str | None = Query(None),
+# ):
+#   # print("MEAL PREF:", meal_preference)
+#   original_amount = get_price_per_person_qr(number_of_people , meal_preference) * number_of_people
 
-   discount = 0
-   coupon_type = None
+#    discount = 0
+#    coupon_type = None
 
-    # 2. Validate coupon if provided
-    if coupon_code:
-      if not email:
-        raise HTTPException(
-            status_code=400,
-            detail="Email is required to apply coupon"
-        )
+#     # 2. Validate coupon if provided
+#     if coupon_code:
+#       if not email:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Email is required to apply coupon"
+#         )
         
 
-        result = validate_coupon(
-            db=db,
-            coupon_code=coupon_code,
-            email=email,
-            trip_type="HERITAGE",
-        )
+#         result = validate_coupon(
+#             db=db,
+#             coupon_code=coupon_code,
+#             email=email,
+#             trip_type="HERITAGE",
+#         )
 
-        if not result["valid"]:
-          raise HTTPException(
-              status_code=400,
-              detail=result["message"]
-          )
+#         if not result["valid"]:
+#           raise HTTPException(
+#               status_code=400,
+#               detail=result["message"]
+#           )
 
-        discount = min(
-          result["discount"],
-          original_amount
-        )
+#         discount = min(
+#           result["discount"],
+#           original_amount
+#         )
 
-        coupon_type = result["coupon_type"]
+#         coupon_type = result["coupon_type"]
 
-    # 3. Calculate final amount
-    final_amount = max(0, original_amount - discount)
+#     # 3. Calculate final amount
+#     final_amount = max(0, original_amount - discount)
 
-    # 4. Generate QR for discounted amount
-    qr_url = create_qr_base64(final_amount)
+#     # 4. Generate QR for discounted amount
+#     qr_url = create_qr_base64(final_amount)
 
-    return {
-        "payment_qr_url": qr_url,
-        "original_amount": original_amount,
-        "discount": discount,
-        "final_amount": final_amount,
-        "coupon_code": coupon_code,
-        "coupon_type": coupon_type,
-        "message": "QR generated successfully"
-    }
+#     return {
+#         "payment_qr_url": qr_url,
+#         "original_amount": original_amount,
+#         "discount": discount,
+#         "final_amount": final_amount,
+#         "coupon_code": coupon_code,
+#         "coupon_type": coupon_type,
+#         "message": "QR generated successfully"
+#     }
 
 @router.get("/odt/halali/qr")
 async def generate_odt_qr(
