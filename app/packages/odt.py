@@ -35,7 +35,7 @@ BUDHNI_CONFIG = {
     "booking_model": models.ODT1,
     "traveller_model": models.ODTTraveller,
     "pricing_function": get_price_per_person_budhni,
-    "base_price": 1351,
+    "base_price": 1099,
     "approve_route": "/odt/budhni/approve",
     "decline_route": "/odt/budhni/decline",
     "approval_mail" : send_email_with_invoice,
