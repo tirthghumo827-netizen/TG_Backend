@@ -426,15 +426,16 @@ async def generate_odt_qr(
   original_amount = get_price_per_person_qr(number_of_people , meal_preference) * number_of_people
 
    discount = 0
-    coupon_type = None
+   coupon_type = None
 
     # 2. Validate coupon if provided
     if coupon_code:
-        if not email:
-            raise HTTPException(
-                status_code=400,
-                detail="Email is required to apply coupon"
-            )
+      if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Email is required to apply coupon"
+        )
+        
 
         result = validate_coupon(
             db=db,
@@ -444,14 +445,14 @@ async def generate_odt_qr(
         )
 
         if not result["valid"]:
-            raise HTTPException(
-                status_code=400,
-                detail=result["message"]
-            )
+          raise HTTPException(
+              status_code=400,
+              detail=result["message"]
+          )
 
         discount = min(
-            result["discount"],
-            original_amount
+          result["discount"],
+          original_amount
         )
 
         coupon_type = result["coupon_type"]
