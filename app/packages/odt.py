@@ -668,7 +668,7 @@ def decline_booking_helper(
 async def odt_booking(
     background_tasks: BackgroundTasks,
     travellers: str = Form(...),
-    meal_preference: str = Form(...),
+    meal_preference: str = Form(...), 
     trek_date: str = Form(...),
     agree: bool = Form(...),
     payment_screenshot: UploadFile = File(...),
