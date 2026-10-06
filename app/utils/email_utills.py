@@ -160,7 +160,7 @@ async def send_user_email_saarthi(data):
 
     Regards,
     Team Tirth Ghumo
-    """
+    """ 
 
     email = {
         "from": "Tirth Ghumo <no-reply@tirthghumo.in>",

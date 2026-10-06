@@ -1,16 +1,10 @@
-def get_price_per_person_budhni(total_people: int , meal_preference : str ):
+
+def get_price_per_person_budhni(total_people: int , meal_preference : str ): #budhni batch
     print(meal_preference , total_people)
     if meal_preference == "with_meal":
-<<<<<<< HEAD
-        return 1099 
-    else:
-        return 869
-=======
-        return 1099
-    else:
-        return 869
-       
->>>>>>> c0370b6b46771a756cfda062ac031c86eab13299
+        return 1099                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+    else: 
+        return 869 
 def get_price_per_person_halali(total_people: int , meal_preference : str):
     print(meal_preference , total_people)
     if meal_preference == "with_meal":
