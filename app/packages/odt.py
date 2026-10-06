@@ -1,46 +1,91 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI ,  HTTPException , Response , status , Depends , APIRouter , Form , File , UploadFile 
+
 import json
 import uuid
-from app import models , schema  
-from sqlalchemy.orm import Session
-from app.database import engine , get_db
-from app.config import settings  
-from app.utils.mail.odt_mail import send_booking_email , send_email_with_invoice , send_booking_declined_email 
-from app.utils.mail.ujjain_omkareshwar import ujjain_approval_email , ujjain_declined_email
-import shutil, os
-from fastapi import BackgroundTasks
-from app.utils.invoice_generator import generate_invoice , generate_ujjain_invoice
-from app.utils.supabase_uploads import upload_to_supabase
-from app.utils.odt_pricing import get_price_per_person_budhni, get_price_per_person_halali , get_price_per_person_ujjain , get_price_per_person_heritage
-from fastapi.responses import HTMLResponse
-from app.services.heritage_coupon_service import (
-    get_or_create_heritage_trek_coupon
-)
-
-from app.utils.mail.odt_mail import (
-    send_heritage_trek_coupon_email
-)
-from urllib.parse import quote
+import shutil
+import os
 import logging
 
+from urllib.parse import quote
+
+from fastapi import (
+    HTTPException,
+    status,
+    Depends,
+    APIRouter,
+    Form,
+    File,
+    UploadFile,
+    BackgroundTasks,
+)
+
+from fastapi.responses import HTMLResponse
+
+from sqlalchemy.orm import Session
+
+from app import models
+
+from app.database import get_db
+
+from app.utils.mail.odt_mail import (
+    send_booking_email,
+    send_email_with_invoice,
+    send_booking_declined_email,
+    send_heritage_trek_coupon_email,
+)
+
+from app.utils.mail.ujjain_omkareshwar import (
+    ujjain_approval_email,
+    ujjain_declined_email,
+)
+
+from app.utils.invoice_generator import (
+    generate_invoice,
+    generate_ujjain_invoice,
+)
+
+from app.utils.odt_pricing import (
+    get_price_per_person_budhni,
+    get_price_per_person_halali,
+    get_price_per_person_ujjain,
+    get_price_per_person_heritage,
+)
+
+from app.services.heritage_coupon_service import (
+    get_or_create_heritage_trek_coupon,
+)
+
+from app.services.coupon_service import (
+    validate_coupons,
+    redeem_coupon,
+)
+
+
 logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 UPLOAD_DIR = "uploads/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+# ============================================================
+# CONFIGURATIONS
+# ============================================================
 
 BUDHNI_CONFIG = {
     "name": "Budhni Trek",
     "booking_model": models.ODT1,
     "traveller_model": models.ODTTraveller,
     "pricing_function": get_price_per_person_budhni,
-    "base_price": 1351,
+    "base_price": 1099,
     "approve_route": "/odt/budhni/approve",
     "decline_route": "/odt/budhni/decline",
-    "approval_mail" : send_email_with_invoice,
-    "decline_mail" : send_booking_declined_email
+    "approval_mail": send_email_with_invoice,
+    "decline_mail": send_booking_declined_email,
 }
+
+
 HALALI_CONFIG = {
     "name": "Halali Trek",
     "booking_model": models.ChotaPachmarhi,
@@ -49,32 +94,40 @@ HALALI_CONFIG = {
     "base_price": 1199,
     "approve_route": "/odt/halali/approve",
     "decline_route": "/odt/halali/decline",
-    "approval_mail" : send_email_with_invoice,
-    "decline_mail" : send_booking_declined_email
+    "approval_mail": send_email_with_invoice,
+    "decline_mail": send_booking_declined_email,
 }
+
+
 UJJAIN_CONFIG = {
     "name": "Ujjain Omkareshwar Trip",
     "booking_model": models.UjjainOmkareshwarTrip,
     "traveller_model": models.UjjainOmkareshwarTraveller,
-    "pricing_function": get_price_per_person_ujjain,  # Assuming same pricing function for Ujjain
+    "pricing_function": get_price_per_person_ujjain,
     "base_price": 5599,
     "approve_route": "/ujjain/approve",
     "decline_route": "/ujjain/decline",
-    "approval_mail" : ujjain_approval_email,
-    "decline_mail" : ujjain_declined_email
+    "approval_mail": ujjain_approval_email,
+    "decline_mail": ujjain_declined_email,
 }
-HERITAGE_CONFIG = { # One Day Heritage Trip Configurations
+
+
+HERITAGE_CONFIG = {
     "name": "Heritage Trip",
     "booking_model": models.HeritageTrip,
     "traveller_model": models.HeritageTraveller,
-    "pricing_function": get_price_per_person_heritage,  # Assuming same pricing function for Heritage
-    "base_price": 999, 
+    "pricing_function": get_price_per_person_heritage,
+    "base_price": 999,
     "approve_route": "/heritage/approve",
     "decline_route": "/heritage/decline",
-    "approval_mail" : send_email_with_invoice,
-    "decline_mail" : send_booking_declined_email
-    
+    "approval_mail": send_email_with_invoice,
+    "decline_mail": send_booking_declined_email,
 }
+
+
+# ============================================================
+# CREATE ODT / HERITAGE BOOKING
+# ============================================================
 
 def create_odt_booking(
     *,
@@ -85,77 +138,251 @@ def create_odt_booking(
     agree: bool,
     payment_screenshot: UploadFile,
     config: dict,
+    coupon_codes: list[str] | None = None,
 ):
+    """
+    Creates Budhni / Halali / Heritage booking.
+
+    Coupon flow:
+
+        1. Validate coupons
+        2. Calculate original price
+        3. Apply maximum ₹100 discount
+        4. Create booking
+        5. Flush to get booking ID
+        6. Redeem coupons
+        7. Add travellers
+        8. Commit everything together
+
+    Coupon is NOT redeemed during validation or QR generation.
+    """
+
+    if not travellers_list:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one traveller required",
+        )
+
     total_people = len(travellers_list)
+
     model = config["booking_model"]
     pricing_function = config["pricing_function"]
     traveller_model = config["traveller_model"]
-    if total_people == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="At least one traveller required"
+
+    primary_email = travellers_list[0]["email_address"]
+
+    # --------------------------------------------------------
+    # COUPON VALIDATION
+    # --------------------------------------------------------
+
+    coupon_codes = coupon_codes or []
+
+    coupon_result = {
+        "discount": 0,
+        "applied_coupons": [],
+        "invalid_coupons": [],
+    }
+
+    # Coupon is currently supported for Budhni + Heritage.
+    # Halali/Ujjain continue without coupon processing.
+    coupon_enabled = config["name"] in {
+        "Budhni Trek",
+        "Heritage Trip",
+    }
+
+    if coupon_enabled and coupon_codes:
+
+        coupon_result = validate_coupons(
+            db=db,
+            coupon_codes=coupon_codes,
+            email=primary_email,
+            trip_type=(
+                "HERITAGE"
+                if config["name"] == "Heritage Trip"
+                else "TREK"
+            ),
         )
 
-    price_per_person = pricing_function(total_people, meal_preference)
-    total_price = price_per_person * total_people
+        if coupon_result["invalid_coupons"]:
 
-    if not total_price:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Invalid coupon(s)",
+                    "invalid_coupons": coupon_result[
+                        "invalid_coupons"
+                    ],
+                },
+            )
+
+    valid_coupons = coupon_result["applied_coupons"]
+
+    # --------------------------------------------------------
+    # PRICE CALCULATION
+    # --------------------------------------------------------
+
+    price_per_person = pricing_function(
+        total_people,
+        meal_preference,
+    )
+
+    original_price = price_per_person * total_people
+
+    if not original_price:
         raise HTTPException(
             status_code=400,
             detail="Invalid group size"
         )
 
+    # Maximum total coupon discount is ₹100
+    discount_amount = min(
+        coupon_result["discount"],
+        100,
+        original_price
+    )
+
+    # Final amount after coupon
+    total_price = original_price - discount_amount
+
+    # --------------------------------------------------------
+    # SAVE PAYMENT SCREENSHOT
+    # --------------------------------------------------------
 
     file_location = None
 
     if payment_screenshot:
+
         unique_id = uuid.uuid4().hex
-        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
-        file_location = os.path.join(UPLOAD_DIR, file_name)
+
+        file_name = (
+            f"booking_{unique_id}_"
+            f"{payment_screenshot.filename}"
+        )
+
+        file_location = os.path.join(
+            UPLOAD_DIR,
+            file_name,
+        )
 
         with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(payment_screenshot.file, buffer)
+            shutil.copyfileobj(
+                payment_screenshot.file,
+                buffer,
+            )
+
+    # --------------------------------------------------------
+    # CREATE BOOKING
+    # --------------------------------------------------------
 
     booking = model(
-        primary_email=travellers_list[0]["email_address"],
+        primary_email=primary_email,
         primary_traveller_name=travellers_list[0]["full_name"],
         primary_traveller_contact=travellers_list[0]["contact_number"],
         total_people=total_people,
+
+        # IMPORTANT:
+        # Store discounted amount.
+        original_price=original_price,
         total_price=total_price,
+        discount_amount=discount_amount,
+
         meal_preference=meal_preference,
         trek_date=trek_date,
         agree=agree,
         payment_screenshot=file_location,
-        status="pending"
+        status="pending",
     )
 
     db.add(booking)
-    db.commit()
-    db.refresh(booking)
 
-    for traveller in travellers_list:
-        db.add(
-            traveller_model(
-                booking_id=booking.id,
-                full_name=traveller["full_name"],
-                email_address=traveller["email_address"],
-                age=traveller["age"],
-                gender=traveller["gender"],
-                contact_number=traveller["contact_number"],
-                whatsapp_number=traveller["whatsapp_number"],
-                college_name=traveller["college_name"],
-                pick_up_loc=traveller["pick_up_loc"],
-                drop_loc=traveller["drop_loc"],
-                trip_exp_level=traveller.get("trip_exp_level"),
-                medical_details=traveller.get("medical_details"),
+    # Get booking.id before creating CouponRedemption
+    db.flush()
+
+    # --------------------------------------------------------
+    # REDEEM COUPONS
+    # --------------------------------------------------------
+
+    try:
+
+        if coupon_enabled:
+
+            trip_type = (
+                "HERITAGE"
+                if config["name"] == "Heritage Trip"
+                else "TREK"
             )
+
+            for coupon in valid_coupons:
+
+                redeem_coupon(
+                    db=db,
+                    coupon_code=coupon["code"],
+                    email=primary_email,
+                    booking_id=booking.id,
+                    trip_type=trip_type,
+                )
+
+        # ----------------------------------------------------
+        # ADD TRAVELLERS
+        # ----------------------------------------------------
+
+        for traveller in travellers_list:
+
+            db.add(
+                traveller_model(
+                    booking_id=booking.id,
+                    full_name=traveller["full_name"],
+                    email_address=traveller["email_address"],
+                    age=traveller["age"],
+                    gender=traveller["gender"],
+                    contact_number=traveller["contact_number"],
+                    whatsapp_number=traveller["whatsapp_number"],
+                    college_name=traveller["college_name"],
+                    pick_up_loc=traveller["pick_up_loc"],
+                    drop_loc=traveller["drop_loc"],
+                    trip_exp_level=traveller.get(
+                        "trip_exp_level"
+                    ),
+                    medical_details=traveller.get(
+                        "medical_details"
+                    ),
+                )
+            )
+
+        # ----------------------------------------------------
+        # COMMIT EVERYTHING TOGETHER
+        # ----------------------------------------------------
+
+        db.commit()
+
+        db.refresh(booking)
+
+    except Exception as exc:
+
+        db.rollback()
+
+        logger.exception(
+            "Booking creation failed for %s",
+            primary_email,
         )
 
-    db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create booking: {str(exc)}",
+        )
 
-    return booking, file_location, total_people, total_price
+    return (
+        booking,
+        file_location,
+        total_people,
+        total_price,
+    )
 
-## Ujjain booking helper function 
+
+# ============================================================
+# UJJAIN BOOKING
+# ============================================================
+
 def create_ujjain_booking(
     *,
     db: Session,
@@ -168,37 +395,56 @@ def create_ujjain_booking(
     config: dict,
 ):
     total_people = len(travellers_list)
+
     model = config["booking_model"]
     pricing_function = config["pricing_function"]
     traveller_model = config["traveller_model"]
+
     if total_people == 0:
         raise HTTPException(
             status_code=400,
-            detail="At least one traveller required"
+            detail="At least one traveller required",
         )
 
-    price_per_person = pricing_function(total_people, meal_preference )
+    price_per_person = pricing_function(
+        total_people,
+        meal_preference,
+    )
+
     total_price = price_per_person * total_people
 
     if not total_price:
         raise HTTPException(
             status_code=400,
-            detail="Invalid group size"
+            detail="Invalid group size",
         )
-    if payment_status == "partial" :
-        total_price = total_price  * 0.4 
-    else :
+
+    if payment_status == "partial":
+        total_price = total_price * 0.4
+    else:
         payment_status = "full"
 
     file_location = None
 
     if payment_screenshot:
+
         unique_id = uuid.uuid4().hex
-        file_name = f"booking_{unique_id}_{payment_screenshot.filename}"
-        file_location = os.path.join(UPLOAD_DIR, file_name)
+
+        file_name = (
+            f"booking_{unique_id}_"
+            f"{payment_screenshot.filename}"
+        )
+
+        file_location = os.path.join(
+            UPLOAD_DIR,
+            file_name,
+        )
 
         with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(payment_screenshot.file, buffer)
+            shutil.copyfileobj(
+                payment_screenshot.file,
+                buffer,
+            )
 
     booking = model(
         primary_email=travellers_list[0]["email_address"],
@@ -211,14 +457,15 @@ def create_ujjain_booking(
         payment_status=payment_status,
         agree=agree,
         payment_screenshot=file_location,
-        status="pending"
+        status="pending",
     )
 
     db.add(booking)
-    db.commit()
-    db.refresh(booking)
+
+    db.flush()
 
     for traveller in travellers_list:
+
         db.add(
             traveller_model(
                 booking_id=booking.id,
@@ -231,15 +478,30 @@ def create_ujjain_booking(
                 college_name=traveller["college_name"],
                 pick_up_loc=traveller["pick_up_loc"],
                 drop_loc=traveller["drop_loc"],
-                trip_exp_level=traveller.get("trip_exp_level"),
-                medical_details=traveller.get("medical_details"),
+                trip_exp_level=traveller.get(
+                    "trip_exp_level"
+                ),
+                medical_details=traveller.get(
+                    "medical_details"
+                ),
             )
         )
 
     db.commit()
 
-    return booking, file_location, total_people, total_price
+    db.refresh(booking)
 
+    return (
+        booking,
+        file_location,
+        total_people,
+        total_price,
+    )
+
+
+# ============================================================
+# APPROVE BOOKING HELPER
+# ============================================================
 
 def approve_booking_helper(
     booking_id: int,
@@ -247,33 +509,64 @@ def approve_booking_helper(
     db: Session,
     config: dict,
 ):
-    booking = db.query(config["booking_model"]).filter(
-    config["booking_model"].id == booking_id
-    ).first()
+
+    booking = (
+        db.query(config["booking_model"])
+        .filter(
+            config["booking_model"].id == booking_id
+        )
+        .first()
+    )
 
     if not booking:
-        raise HTTPException(404, "Booking not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Booking not found",
+        )
 
     if booking.status != "pending":
         raise HTTPException(
-            400,
-            f"Booking status is '{booking.status}', cannot approve."
-        )
-    if config["name"] == "Ujjain Omkareshwar Trip":
-        invoice_path = generate_ujjain_invoice(
-            booking,
-            config
-        )
-    else:
-        invoice_path = generate_invoice(
-            booking,
-            config
+            status_code=400,
+            detail=(
+                f"Booking status is '{booking.status}', "
+                "cannot approve."
+            ),
         )
 
-    booking.status = "approved"
+    try:
 
-    db.commit()
-    db.refresh(booking)
+        if config["name"] == "Ujjain Omkareshwar Trip":
+
+            invoice_path = generate_ujjain_invoice(
+                booking,
+                config,
+            )
+
+        else:
+
+            invoice_path = generate_invoice(
+                booking,
+                config,
+            )
+
+        booking.status = "approved"
+
+        db.commit()
+        db.refresh(booking)
+
+    except Exception:
+
+        db.rollback()
+
+        logger.exception(
+            "Approval failed for booking ID %s",
+            booking_id,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not approve booking.",
+        )
 
     background_tasks.add_task(
         config["approval_mail"],
@@ -282,42 +575,66 @@ def approve_booking_helper(
         invoice_path,
     )
 
-    whatsapp_message = _build_odt_whatsapp_message(booking)
+    whatsapp_message = _build_odt_whatsapp_message(
+        booking
+    )
 
     whatsapp_url = (
-        f"https://wa.me/91{booking.primary_traveller_contact}"
+        f"https://wa.me/91"
+        f"{booking.primary_traveller_contact}"
         f"?text={quote(whatsapp_message, safe='', encoding='utf-8')}"
     )
 
     return _status_page(
         title="Booking Approved",
-        message=f"Booking <strong>#TG-{booking_id}</strong> has been approved. "
-                f"The confirmation email and invoice have been sent to the customer.",
+        message=(
+            f"Booking <strong>#TG-{booking_id}</strong> "
+            "has been approved. The confirmation email "
+            "and invoice have been queued."
+        ),
         color="#16a34a",
         icon="✓",
         whatsapp_url=whatsapp_url,
         whatsapp_label="Send WhatsApp to Customer",
     )
+
+
+# ============================================================
+# DECLINE BOOKING HELPER
+# ============================================================
+
 def decline_booking_helper(
     booking_id: int,
     background_tasks: BackgroundTasks,
     db: Session,
-    booking_model,
+    config: dict,
 ):
+
+    booking_model = config["booking_model"]
+
     booking = (
         db.query(booking_model)
-        .filter(booking_model.id == booking_id)
+        .filter(
+            booking_model.id == booking_id
+        )
         .first()
     )
 
     if not booking:
-        raise HTTPException(404, "Booking not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Booking not found",
+        )
 
     if booking.status != "pending":
         raise HTTPException(
-            400,
-            f"Booking status is '{booking.status}', cannot decline."
+            status_code=400,
+            detail=(
+                f"Booking status is '{booking.status}', "
+                "cannot decline."
+            ),
         )
+
     booking.status = "declined"
 
     db.commit()
@@ -330,36 +647,69 @@ def decline_booking_helper(
 
     return _status_page(
         title="Booking Declined",
-        message=f"Booking <strong>#TG-{booking_id}</strong> has been declined. "
-                f"The customer has been notified via email.",
+        message=(
+            f"Booking <strong>#TG-{booking_id}</strong> "
+            "has been declined. The customer has been "
+            "notified via email."
+        ),
         color="#dc2626",
         icon="✕",
     )
 
 
-@router.post("/odt_booking", status_code=status.HTTP_201_CREATED)
+# ============================================================
+# ODT / BUDHNI BOOKING
+# ============================================================
+
+@router.post(
+    "/odt_booking",
+    status_code=status.HTTP_201_CREATED,
+)
 async def odt_booking(
     background_tasks: BackgroundTasks,
-    travellers: str = Form(...),   # JSON string array
+    travellers: str = Form(...),
     meal_preference: str = Form(...),
-    trek_date: str = Form(...) ,
+    trek_date: str = Form(...),
     agree: bool = Form(...),
     payment_screenshot: UploadFile = File(...),
-    db: Session = Depends(get_db)
+
+    # IMPORTANT:
+    # Send multiple coupon_codes fields in Postman.
+    coupon_codes: list[str] = Form(default=[]),
+
+    db: Session = Depends(get_db),
 ):
-    # Parse travellers JSON
-    
-    travellers_list = json.loads(travellers)
-    
-    booking, file_location, total_people, total_price = create_odt_booking(
-    db=db,
-    travellers_list=travellers_list,
-    meal_preference=meal_preference,
-    trek_date=trek_date,
-    agree=agree,
-    payment_screenshot=payment_screenshot,
-    config=BUDHNI_CONFIG
-)
+
+    try:
+        travellers_list = json.loads(travellers)
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid travellers JSON.",
+        )
+
+    if not isinstance(travellers_list, list):
+        raise HTTPException(
+            status_code=400,
+            detail="travellers must be a JSON array.",
+        )
+
+    (
+        booking,
+        file_location,
+        total_people,
+        total_price,
+    ) = create_odt_booking(
+        db=db,
+        travellers_list=travellers_list,
+        meal_preference=meal_preference,
+        trek_date=trek_date,
+        agree=agree,
+        payment_screenshot=payment_screenshot,
+        config=BUDHNI_CONFIG,
+        coupon_codes=coupon_codes,
+    )
 
     background_tasks.add_task(
         send_booking_email,
@@ -376,30 +726,49 @@ async def odt_booking(
         "total_price": total_price,
     }
 
-# Chota Pachmarhi Route 
-@router.post("/odt/halali", status_code=status.HTTP_201_CREATED)
-async def odt_booking(
+
+# ============================================================
+# HALALI BOOKING
+# ============================================================
+
+@router.post(
+    "/odt/halali",
+    status_code=status.HTTP_201_CREATED,
+)
+async def halali_booking(
     background_tasks: BackgroundTasks,
-    travellers: str = Form(...),   # JSON string array
+    travellers: str = Form(...),
     meal_preference: str = Form(...),
-    trek_date: str = Form(...) ,
+    trek_date: str = Form(...),
     agree: bool = Form(...),
     payment_screenshot: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Parse travellers JSON
-    
-    travellers_list = json.loads(travellers)
-    
-    booking, file_location, total_people, total_price = create_odt_booking(
-    db=db,
-    travellers_list=travellers_list,
-    meal_preference=meal_preference,
-    trek_date=trek_date,
-    agree=agree,
-    payment_screenshot=payment_screenshot,
-    config=HALALI_CONFIG
-)
+
+    try:
+        travellers_list = json.loads(travellers)
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid travellers JSON.",
+        )
+
+    (
+        booking,
+        file_location,
+        total_people,
+        total_price,
+    ) = create_odt_booking(
+        db=db,
+        travellers_list=travellers_list,
+        meal_preference=meal_preference,
+        trek_date=trek_date,
+        agree=agree,
+        payment_screenshot=payment_screenshot,
+        config=HALALI_CONFIG,
+        coupon_codes=[],
+    )
 
     background_tasks.add_task(
         send_booking_email,
@@ -415,31 +784,51 @@ async def odt_booking(
         "total_people": total_people,
         "total_price": total_price,
     }
-@router.post("/ujjain_omkareshwar", status_code=status.HTTP_201_CREATED)
-async def odt_booking(
+
+
+# ============================================================
+# UJJAIN OMKARESHWAR BOOKING
+# ============================================================
+
+@router.post(
+    "/ujjain_omkareshwar",
+    status_code=status.HTTP_201_CREATED,
+)
+async def ujjain_booking(
     background_tasks: BackgroundTasks,
-    travellers: str = Form(...),   # JSON string array
+    travellers: str = Form(...),
     meal_preference: str = Form(...),
-    trek_date: str = Form(...) ,
+    trek_date: str = Form(...),
     payment_status: str = Form(...),
     agree: bool = Form(...),
     payment_screenshot: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Parse travellers JSON
-    
-    travellers_list = json.loads(travellers)
-    
-    booking, file_location, total_people, total_price = create_ujjain_booking(
-    db=db,
-    travellers_list=travellers_list,
-    meal_preference=meal_preference,
-    trek_date=trek_date,
-    agree=agree,
-    payment_status=payment_status,
-    payment_screenshot=payment_screenshot,
-    config=UJJAIN_CONFIG
-)
+
+    try:
+        travellers_list = json.loads(travellers)
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid travellers JSON.",
+        )
+
+    (
+        booking,
+        file_location,
+        total_people,
+        total_price,
+    ) = create_ujjain_booking(
+        db=db,
+        travellers_list=travellers_list,
+        meal_preference=meal_preference,
+        trek_date=trek_date,
+        payment_status=payment_status,
+        agree=agree,
+        payment_screenshot=payment_screenshot,
+        config=UJJAIN_CONFIG,
+    )
 
     background_tasks.add_task(
         send_booking_email,
@@ -456,28 +845,58 @@ async def odt_booking(
         "total_price": total_price,
     }
 
-@router.post("/heritage_booking", status_code=status.HTTP_201_CREATED)
-async def odt_booking(
+
+# ============================================================
+# HERITAGE BOOKING
+# ============================================================
+
+@router.post(
+    "/heritage_booking",
+    status_code=status.HTTP_201_CREATED,
+)
+async def heritage_booking(
     background_tasks: BackgroundTasks,
-    travellers: str = Form(...),   # JSON string array
+    travellers: str = Form(...),
     meal_preference: str = Form(...),
-    trek_date: str = Form(...) ,
+    trek_date: str = Form(...),
     agree: bool = Form(...),
     payment_screenshot: UploadFile = File(...),
-    db: Session = Depends(get_db)
+
+    # Multiple coupon codes supported
+    coupon_codes: list[str] = Form(default=[]),
+
+    db: Session = Depends(get_db),
 ):
-    # Parse travellers JSON
-    
-    travellers_list = json.loads(travellers)
-    
-    booking, file_location, total_people, total_price = create_odt_booking(
-    db=db,
-    travellers_list=travellers_list,
-    meal_preference=meal_preference,
-    trek_date=trek_date,
-    agree=agree,
-    payment_screenshot=payment_screenshot,
-    config=HERITAGE_CONFIG
+
+    try:
+        travellers_list = json.loads(travellers)
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid travellers JSON.",
+        )
+
+    if not isinstance(travellers_list, list):
+        raise HTTPException(
+            status_code=400,
+            detail="travellers must be a JSON array.",
+        )
+
+    (
+        booking,
+        file_location,
+        total_people,
+        total_price,
+    ) = create_odt_booking(
+        db=db,
+        travellers_list=travellers_list,
+        meal_preference=meal_preference,
+        trek_date=trek_date,
+        agree=agree,
+        payment_screenshot=payment_screenshot,
+        config=HERITAGE_CONFIG,
+        coupon_codes=coupon_codes,
     )
 
     background_tasks.add_task(
@@ -496,27 +915,53 @@ async def odt_booking(
     }
 
 
+# ============================================================
+# WHATSAPP GROUPS
+# ============================================================
 
 ODT_WHATSAPP_GROUPS = {
-    # "2026-07-12": "https://chat.whatsapp.com/JEMGyip6DoOF0PjWAxmGbF?s=sh&p=a&ilr=0", #B9
-    # "2026-07-26": "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0",  # B10
-    # "2026-08-22": "https://chat.whatsapp.com/HIwU7EwT5iyAkQhX73ZP81?s=cl&p=i&mlu=0&ilr=0" , # Halali Trek
-    "2026-09-05" : "https://chat.whatsapp.com/G9cEuK3Vb9b4KtizF2TbVu?s=sw&p=a&ilr=4", # Halali Batch 2 
-    "2026-09-19" : "https://chat.whatsapp.com/FyqDe4aK99TGxhhgbd9pMX?s=sw&p=a&ilr=4", # Ujjain Batch 1 
-    "2026-09-26" : "https://chat.whatsapp.com/LUSThbpdQ9D5kdnchJ5gEv?s=sw&p=a&ilr=4", # Ujjain Batch 2
-    "2026-10-04" : "https://chat.whatsapp.com/BMaYQX8lefZJ5EMKttOjTC?s=cl&p=i&mlu=4&ilr=4", # One day heritage trip  1
-    # add more trek dates here as needed
+
+    # "2026-09-05":
+    #     "https://chat.whatsapp.com/G9cEuK3Vb9b4KtizF2TbVu?s=sw&p=a&ilr=4",
+
+    # "2026-09-19":
+    #     "https://chat.whatsapp.com/FyqDe4aK99TGxhhgbd9pMX?s=sw&p=a&ilr=4",
+
+    # "2026-09-26":
+    #     "https://chat.whatsapp.com/LUSThbpdQ9D5kdnchJ5gEv?s=sw&p=a&ilr=4",
+
+    "2026-10-18":
+        "https://chat.whatsapp.com/BMaYQX8lefZJ5EMKttOjTC?mode=gi_t",
+
+    "2026-10-11":
+        "https://chat.whatsapp.com/Eua9Gb0HkVkLPcmiqvw5am?mode=gi_t"
 }
 
-DEFAULT_ODT_WHATSAPP_GROUP = "https://chat.whatsapp.com/JkflPYXwYqzIfVEe8rmMUf?s=cl&p=i&mlu=0&ilr=0"
+
+DEFAULT_ODT_WHATSAPP_GROUP = (
+    "https://chat.whatsapp.com/"
+    "JkflPYXwYqzIfVEe8rmMUf?"
+    "s=cl&p=i&mlu=0&ilr=0"
+)
 
 
 def _get_whatsapp_group_link(trek_date) -> str:
+
     if hasattr(trek_date, "isoformat"):
         trek_date = trek_date.isoformat()
+
     else:
         trek_date = str(trek_date).strip()[:10]
-    return ODT_WHATSAPP_GROUPS.get(trek_date, DEFAULT_ODT_WHATSAPP_GROUP)
+
+    return ODT_WHATSAPP_GROUPS.get(
+        trek_date,
+        DEFAULT_ODT_WHATSAPP_GROUP,
+    )
+
+
+# ============================================================
+# STATUS PAGE
+# ============================================================
 
 def _status_page(
     title: str,
@@ -524,235 +969,374 @@ def _status_page(
     color: str,
     icon: str,
     whatsapp_url: str | None = None,
-    whatsapp_label: str = "Send WhatsApp Message"
+    whatsapp_label: str = "Send WhatsApp Message",
 ) -> HTMLResponse:
+
     whatsapp_button = ""
+
     if whatsapp_url:
+
         whatsapp_button = f"""
-    <hr class="divider">
-    <a href="{whatsapp_url}" target="_blank" class="btn-whatsapp">
-      <span>📱</span> {whatsapp_label}
-    </a>"""
+        <hr class="divider">
+
+        <a href="{whatsapp_url}"
+           target="_blank"
+           class="btn-whatsapp">
+
+            <span>📱</span>
+            {whatsapp_label}
+
+        </a>
+        """
 
     html = f"""
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title}</title>
-  <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-      background: #f4f4f4;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }}
-    .card {{
-      background: #ffffff;
-      border-radius: 12px;
-      border: 1px solid #e0e0e0;
-      padding: 48px 40px;
-      text-align: center;
-      max-width: 420px;
-      width: 90%;
-    }}
-    .icon {{
-      width: 64px;
-      height: 64px;
-      border-radius: 50%;
-      background: {color}15;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 24px;
-      font-size: 28px;
-    }}
-    .brand {{
-      font-size: 13px;
-      font-weight: 600;
-      color: #9ca3af;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      margin-bottom: 20px;
-    }}
-    .brand span {{ color: #f97316; }}
-    h1 {{
-      font-size: 22px;
-      font-weight: 700;
-      color: #111827;
-      margin-bottom: 10px;
-    }}
-    p {{
-      font-size: 14px;
-      color: #6b7280;
-      line-height: 1.6;
-    }}
-    .divider {{
-      border: none;
-      border-top: 1px solid #e5e7eb;
-      margin: 28px 0;
-    }}
-    .footer {{
-      font-size: 12px;
-      color: #9ca3af;
-      margin-top: 24px;
-    }}
-    .btn-whatsapp {{
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: #25D366;
-      color: white;
-      padding: 12px 24px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 600;
-      transition: background 0.2s;
-    }}
-    .btn-whatsapp:hover {{ background: #1ebe5d; }}
-  </style>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>{title}</title>
+
+<style>
+
+* {{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}}
+
+body {{
+
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        Arial,
+        sans-serif;
+
+    background: #f4f4f4;
+
+    min-height: 100vh;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+}}
+
+.card {{
+
+    background: #ffffff;
+
+    border-radius: 12px;
+
+    border: 1px solid #e0e0e0;
+
+    padding: 48px 40px;
+
+    text-align: center;
+
+    max-width: 420px;
+
+    width: 90%;
+}}
+
+.icon {{
+
+    width: 64px;
+
+    height: 64px;
+
+    border-radius: 50%;
+
+    background: {color}15;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    margin: 0 auto 24px;
+
+    font-size: 28px;
+}}
+
+.brand {{
+
+    font-size: 13px;
+
+    font-weight: 600;
+
+    color: #9ca3af;
+
+    letter-spacing: 0.5px;
+
+    text-transform: uppercase;
+
+    margin-bottom: 20px;
+}}
+
+.brand span {{
+    color: #f97316;
+}}
+
+h1 {{
+
+    font-size: 22px;
+
+    font-weight: 700;
+
+    color: #111827;
+
+    margin-bottom: 10px;
+}}
+
+p {{
+
+    font-size: 14px;
+
+    color: #6b7280;
+
+    line-height: 1.6;
+}}
+
+.divider {{
+
+    border: none;
+
+    border-top: 1px solid #e5e7eb;
+
+    margin: 28px 0;
+}}
+
+.footer {{
+
+    font-size: 12px;
+
+    color: #9ca3af;
+
+    margin-top: 24px;
+}}
+
+.btn-whatsapp {{
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    background: #25D366;
+
+    color: white;
+
+    padding: 12px 24px;
+
+    border-radius: 8px;
+
+    text-decoration: none;
+
+    font-size: 14px;
+
+    font-weight: 600;
+}}
+
+</style>
+
 </head>
+
 <body>
-  <div class="card">
-    <div class="brand">Tirth<span>Ghumo</span></div>
-    <div class="icon">{icon}</div>
+
+<div class="card">
+
+    <div class="brand">
+        Tirth<span>Ghumo</span>
+    </div>
+
+    <div class="icon">
+        {icon}
+    </div>
+
     <h1>{title}</h1>
+
     <p>{message}</p>
+
     {whatsapp_button}
+
     <hr class="divider">
-    <div class="footer">This action has been recorded. You may close this tab.</div>
-  </div>
+
+    <div class="footer">
+        This action has been recorded.
+        You may close this tab.
+    </div>
+
+</div>
+
 </body>
+
 </html>
 """
-    return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
- 
+
+    return HTMLResponse(
+        content=html,
+        media_type="text/html; charset=utf-8",
+    )
+
+
+# ============================================================
+# WHATSAPP MESSAGE
+# ============================================================
 
 def _build_odt_whatsapp_message(booking) -> str:
-    print(f"DEBUG trek_date value: {repr(booking.trek_date)}")
-    group_link = _get_whatsapp_group_link(booking.trek_date)
+
+    group_link = _get_whatsapp_group_link(
+        booking.trek_date
+    )
+
     return f"""
-Thank you {booking.primary_traveller_name} Ji for registering for Trip ! 
+Thank you {booking.primary_traveller_name} Ji for registering for Trip!
 
-Your registration is successful.  
+Your registration is successful.
 
-Please check your email for the confirmation and trip details  . 
+Please check your email for the confirmation and trip details.
 
 Join the official WhatsApp group using the link below:
+
 {group_link}
 
-Make sure you have raised the request to join the official WhatsApp group as all updates, packing lists, and important info will be shared there before the trip .
+Make sure you have raised the request to join the official WhatsApp group as all updates, packing lists, and important info will be shared there before the trip.
 
-See you on the trip ! 
+See you on the trip!
 
 Team TirthGhumo
 """.strip()
 
 
-@router.get("/odt/budhni/approve")
-def approve_booking(
-    booking_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
-    return approve_booking_helper(
-        booking_id,
-        background_tasks,
-        db,
-        config=BUDHNI_CONFIG
-    )
-@router.get("/odt/halali/approve")
-def approve_chota_booking(
-    booking_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
-    return approve_booking_helper(
-        booking_id,
-        background_tasks,
-        db,
-        config=HALALI_CONFIG
-    )
-@router.get("/ujjain/approve")
-def approve_chota_booking(
-    booking_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
-    return approve_booking_helper(
-        booking_id,
-        background_tasks,
-        db,
-        config=UJJAIN_CONFIG
-    )
-# @router.get("/heritage/approve")
-# def approve_booking(
-#     booking_id: int,
-#     background_tasks: BackgroundTasks,
-#     db: Session = Depends(get_db),
-# ):
-#     return approve_booking_helper(
-#         booking_id,
-#         background_tasks,
-#         db,
-#         config=HERITAGE_CONFIG
-#     )
+# ============================================================
+# BUDHNI APPROVE
+# ============================================================
 
-@router.get("/odt/budhni/decline")
-def decline_booking(
+@router.get("/odt/budhni/approve")
+def approve_budhni_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    return decline_booking_helper(
-        booking_id,
-        background_tasks,
-        db,
+
+    return approve_booking_helper(
+        booking_id=booking_id,
+        background_tasks=background_tasks,
+        db=db,
         config=BUDHNI_CONFIG,
     )
-@router.get("/odt/halali/decline")
-def decline_chota_booking(
+
+
+# ============================================================
+# HALALI APPROVE
+# ============================================================
+
+@router.get("/odt/halali/approve")
+def approve_halali_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    return decline_booking_helper(
-        booking_id,
-        background_tasks,
-        db,
+
+    return approve_booking_helper(
+        booking_id=booking_id,
+        background_tasks=background_tasks,
+        db=db,
         config=HALALI_CONFIG,
     )
-@router.get("/ujjain/decline")
-def decline_chota_booking(
+
+
+# ============================================================
+# UJJAIN APPROVE
+# ============================================================
+
+@router.get("/ujjain/approve")
+def approve_ujjain_booking(
     booking_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    return decline_booking_helper(
-        booking_id,
-        background_tasks,
-        db,
+
+    return approve_booking_helper(
+        booking_id=booking_id,
+        background_tasks=background_tasks,
+        db=db,
         config=UJJAIN_CONFIG,
     )
-# @router.get("/heritage/decline")
-# def decline_booking(
-#     booking_id: int,
-#     background_tasks: BackgroundTasks,
-#     db: Session = Depends(get_db),
-# ):
-#     return decline_booking_helper(
-#         booking_id,
-#         background_tasks,
-#         db,
-#         config=HERIATGE_CONFIG,
-#     )
 
-# ================= HERITAGE APPROVAL ROUTE =================
+
+# ============================================================
+# BUDHNI DECLINE
+# ============================================================
+
+@router.get("/odt/budhni/decline")
+def decline_budhni_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+
+    return decline_booking_helper(
+        booking_id=booking_id,
+        background_tasks=background_tasks,
+        db=db,
+        config=BUDHNI_CONFIG,
+    )
+
+
+# ============================================================
+# HALALI DECLINE
+# ============================================================
+
+@router.get("/odt/halali/decline")
+def decline_halali_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+
+    return decline_booking_helper(
+        booking_id=booking_id,
+        background_tasks=background_tasks,
+        db=db,
+        config=HALALI_CONFIG,
+    )
+
+
+# ============================================================
+# UJJAIN DECLINE
+# ============================================================
+
+@router.get("/ujjain/decline")
+def decline_ujjain_booking(
+    booking_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+
+    return decline_booking_helper(
+        booking_id=booking_id,
+        background_tasks=background_tasks,
+        db=db,
+        config=UJJAIN_CONFIG,
+    )
+
+
+# ============================================================
+# HERITAGE APPROVE
+# ============================================================
 
 @router.get("/heritage/approve")
 def approve_heritage_booking(
@@ -760,47 +1344,60 @@ def approve_heritage_booking(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    # Fetch Heritage booking
+
     booking = (
         db.query(models.HeritageTrip)
-        .filter(models.HeritageTrip.id == booking_id)
+        .filter(
+            models.HeritageTrip.id == booking_id
+        )
         .first()
     )
 
     if not booking:
+
         raise HTTPException(
             status_code=404,
             detail="Heritage booking not found",
         )
 
     if booking.status != "pending":
+
         raise HTTPException(
             status_code=400,
-            detail=f"Booking status is '{booking.status}', cannot approve.",
+            detail=(
+                f"Booking status is '{booking.status}', "
+                "cannot approve."
+            ),
         )
 
     try:
+
         # Generate invoice
-        invoice_path = generate_invoice(booking, HERITAGE_CONFIG)
+        invoice_path = generate_invoice(
+            booking,
+            HERITAGE_CONFIG,
+        )
 
         # Approve booking
         booking.status = "approved"
 
-        # Generate or retrieve Heritage → Trek coupon
-        coupon, coupon_created = get_or_create_heritage_trek_coupon(
-            db=db,
-            email=booking.primary_email,
-            heritage_booking_id=booking.id,
+        # Generate / retrieve Heritage -> Trek coupon
+        coupon, coupon_created = (
+            get_or_create_heritage_trek_coupon(
+                db=db,
+                email=booking.primary_email,
+                heritage_booking_id=booking.id,
+            )
         )
 
-        # Save approval changes
         db.commit()
+
         db.refresh(booking)
 
     except Exception:
+
         db.rollback()
 
-        # Print the actual error in the FastAPI terminal
         logger.exception(
             "Heritage approval failed for booking ID %s",
             booking_id,
@@ -811,7 +1408,7 @@ def approve_heritage_booking(
             detail="Could not approve Heritage booking.",
         )
 
-    # Existing approval email with invoice
+    # Existing approval email + invoice
     background_tasks.add_task(
         HERITAGE_CONFIG["approval_mail"],
         booking.primary_email,
@@ -819,8 +1416,9 @@ def approve_heritage_booking(
         invoice_path,
     )
 
-    # Send coupon email only if a new coupon was created
+    # Send generated coupon email
     if coupon_created:
+
         background_tasks.add_task(
             send_heritage_trek_coupon_email,
             booking.primary_email,
@@ -828,21 +1426,25 @@ def approve_heritage_booking(
             coupon.expires_at,
         )
 
-    # WhatsApp link
-    whatsapp_message = _build_odt_whatsapp_message(booking)
+    whatsapp_message = _build_odt_whatsapp_message(
+        booking
+    )
 
     whatsapp_url = (
-        f"https://wa.me/91{booking.primary_traveller_contact}"
+        f"https://wa.me/91"
+        f"{booking.primary_traveller_contact}"
         f"?text={quote(whatsapp_message, safe='', encoding='utf-8')}"
     )
 
     return _status_page(
         title="Heritage Booking Approved",
         message=(
-            f"Heritage booking <strong>#TG-{booking_id}</strong> "
-            "has been approved. Confirmation email and invoice have been "
-            "queued. Heritage → Trek coupon email has also been queued "
-            "if a new coupon was generated."
+            f"Heritage booking "
+            f"<strong>#TG-{booking_id}</strong> "
+            "has been approved. Confirmation email "
+            "and invoice have been queued. "
+            "Heritage → Trek coupon email has also "
+            "been queued if a new coupon was generated."
         ),
         color="#16a34a",
         icon="✓",
@@ -851,7 +1453,9 @@ def approve_heritage_booking(
     )
 
 
-# ================= HERITAGE DECLINE ROUTE =================
+# ============================================================
+# HERITAGE DECLINE
+# ============================================================
 
 @router.get("/heritage/decline")
 def decline_heritage_booking(
@@ -859,28 +1463,38 @@ def decline_heritage_booking(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    # Fetch Heritage booking
+
     booking = (
         db.query(models.HeritageTrip)
-        .filter(models.HeritageTrip.id == booking_id)
+        .filter(
+            models.HeritageTrip.id == booking_id
+        )
         .first()
     )
 
     if not booking:
-        raise HTTPException(status_code=404, detail="Heritage booking not found")
 
-    if booking.status != "pending":
         raise HTTPException(
-            status_code=400,
-            detail=f"Booking status is '{booking.status}', cannot decline."
+            status_code=404,
+            detail="Heritage booking not found",
         )
 
-    # Decline booking
+    if booking.status != "pending":
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Booking status is '{booking.status}', "
+                "cannot decline."
+            ),
+        )
+
     booking.status = "declined"
+
     db.commit()
+
     db.refresh(booking)
 
-    # Send existing decline email
     background_tasks.add_task(
         HERITAGE_CONFIG["decline_mail"],
         booking,
@@ -890,8 +1504,10 @@ def decline_heritage_booking(
     return _status_page(
         title="Heritage Booking Declined",
         message=(
-            f"Heritage booking <strong>#TG-{booking_id}</strong> "
-            "has been declined. The customer has been notified via email."
+            f"Heritage booking "
+            f"<strong>#TG-{booking_id}</strong> "
+            "has been declined. The customer has been "
+            "notified via email."
         ),
         color="#dc2626",
         icon="✕",

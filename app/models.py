@@ -49,12 +49,16 @@ class ODT1(Base):
     primary_traveller_name = Column(String(100), nullable=False)
     primary_traveller_contact = Column(String(12), nullable=False)
     total_people = Column(Integer, nullable=False)
+    original_price = Column(Integer, nullable=False)
     total_price = Column(Integer, nullable=False)
+    discount_amount = Column(Integer, default=0, nullable=False)
+    applied_coupons = Column(JSON, nullable=True)
     meal_preference = Column(String(30), nullable=False)
     trek_date = Column(Date, nullable=False)
     status = Column(String(20), default="pending")
     payment_screenshot = Column(String(255), nullable=False)
     agree = Column(Boolean, default=False)
+    
     submitted_at = Column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -178,7 +182,7 @@ class UjjainOmkareshwarTraveller(Base):
 
     contact_number = Column(String(12), nullable=False)
     whatsapp_number = Column(String(12), nullable=False)
-
+ 
     college_name = Column(String(200), nullable=False)
 
     trip_exp_level = Column(String(40))
@@ -192,12 +196,16 @@ class HeritageTrip(Base):
     primary_traveller_name = Column(String(100), nullable=False)
     primary_traveller_contact = Column(String(12), nullable=False)
     total_people = Column(Integer, nullable=False)
-    total_price = Column(Integer, nullable=False)
+    original_price = Column(Integer)
+    total_price = Column(Integer)
+    discount_amount = Column(Integer, default=0)
+    applied_coupons = Column(JSON, nullable=True)
     meal_preference = Column(String(30), nullable=False)
     trek_date = Column(Date, nullable=False)
     status = Column(String(20), default="pending")
     payment_screenshot = Column(String(255), nullable=False)
     agree = Column(Boolean, default=False)
+    
     submitted_at = Column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -740,5 +748,9 @@ class CouponRedemption(Base):
             "user_email",
             "coupon_type",
             name="uq_user_coupon_type",
+        ),
+        UniqueConstraint(
+            "coupon_code",
+            name="uq_coupon_redemption_code",
         ),
     )
