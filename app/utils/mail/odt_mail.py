@@ -19,6 +19,7 @@ import resend
 import base64
 
 import os
+import html
 
 from datetime import datetime
 
